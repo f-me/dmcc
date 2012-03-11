@@ -1,0 +1,29 @@
+Name:                avaya-aes
+Version:             0.0
+Synopsis:
+Homepage:            https://github.com/f-me/avaya-aes
+License:             BSD3
+License-file:        LICENSE
+Author:              Tim
+Maintainer:          timofey@formalmethods.ru
+Category:            Network
+Build-type:          Simple
+Cabal-version:       >=1.6
+
+Library
+  Hs-source-dirs: src
+  Exposed-modules:
+    Network.Avaya
+
+  Build-depends:
+    base        == 4.*,
+    binary,
+    bytestring  == 0.9.*,
+    network,
+    text,
+    xml-conduit == 0.5.*
+
+source-repository head
+  type:     git
+  location: git://github.com/f-me/avaya-aes.git
+
