@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module Network.Avaya where
 
@@ -17,14 +18,15 @@ import           Network.Socket.ByteString.Lazy
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as L
 import           Data.Text.Lazy.Encoding
+import           Text.Hamlet.XML
 import           Text.XML
 import           Text.XML.Cursor
 
 
 host         = "192.168.20.5"  -- AES IP address
 port         = "4721"          -- default AES ports are 4721 and 4722
-username     = "user"
-password     = "1234"
+username     = "dev"
+password     = "1qaz@WSX"
 callServerIp = "192.168.20.2"  -- ?
 extension    = "4750"          -- ?
 
@@ -42,42 +44,54 @@ test = withSocketsDo $ do
     sock <- connectTo host port
 
     -- Establish an application session.
-    sendRequest sock startAppSession 1
+    sendRequest sock startAppSession "0001"
     res <- recvResponse sock
     putStrLn $ "* startAppSessionResponse:\n" ++ B.unpack res
 
-    let sessionId = encodeUtf8 . L.fromStrict $ parseSessionId res
+    let sessionId = parseSessionId res
 
-    when (isPosResponse $ parseResponse res) $ do
+    when (isPosResponse res) $ do
         -- Get device identifier.
-        sendRequest sock getDeviceIdMessage 2
+        sendRequest sock getDeviceIdMessage "0002"
         res <- recvResponse sock
         putStrLn $ "* getDeviceIdResponseMessage:\n" ++ B.unpack res
 
-        let devId = encodeUtf8 . L.fromStrict $ parseDeviceId res
+        let devId = parseDeviceId res
 
-        when (not $ B.null devId) $ do
+        when (not $ T.null devId) $ do
             -- Request notification of events.
-            sendRequest sock (monitorStartMessage devId) 3
+            sendRequest sock (monitorStartMessage devId) "0003"
             res <- recvResponse sock
             putStrLn $ "* monitorStartResponseMessage:\n" ++ B.unpack res
 
-            let monId = encodeUtf8 . L.fromStrict $ parseMonitorId res
+            let monId = parseMonitorId res
 
             telephonyLogic
-            cleanUp monId sessionId
+            cleanUp sock monId devId sessionId
 
 
 telephonyLogic = putStrLn "No telephony logic implemented in this example application."
 
 
-cleanUp monId sessionId = do
+cleanUp sock monId devId sessionId = do
     -- Stop monitoring the events.
+    sendRequest sock (monitorStopMessage monId) "0004"
+    res <- recvResponse sock
+    putStrLn $ "* monitorStopResponseMessage:\n" ++ B.unpack res
+
+    -- Release the device identifier.
+    sendRequest sock (releaseDeviceIdMessage devId) "0005"
+    res <- recvResponse sock
+    putStrLn $ "* releaseDeviceResponseMessage:\n" ++ B.unpack res
+
     -- Close the app session.
-    return ()
+    sendRequest sock (stopAppSession sessionId) "0006"
+    res <- recvResponse sock
+    putStrLn $ "* stopAppSessionResponseMessage:\n" ++ B.unpack res
+
 
 ------------------------------------------------------------------------------
-sendRequest :: Socket -> B.ByteString -> Word32 -> IO ()
+sendRequest :: Socket -> B.ByteString -> B.ByteString -> IO ()
 sendRequest sock request invokeId = do
     -- hPutStr h . B.unpack . runPut $ putHeader request invokeId  -- FIXME: maybe Network.Socket.ByteString?
     send sock . runPut $ putHeader request invokeId  -- FIXME: send function is Unix only
@@ -103,11 +117,11 @@ data CstaHeader = CstaHeader {
     }
 
 
-putHeader :: B.ByteString -> Word32 -> Put
+putHeader :: B.ByteString -> B.ByteString -> Put
 putHeader request invokeId = do
     putWord16be 0
     putWord16be . fromIntegral $ 8 + B.length request
-    putWord32be invokeId
+    putLazyByteString invokeId
     putLazyByteString request
 
 
@@ -124,10 +138,10 @@ parseResponse :: B.ByteString -> Document
 parseResponse = parseLBS_ def  -- FIXME: maybe we should use parseLBS that returns Either SomeException Document?
 
 
-isPosResponse :: Document -> Bool
-isPosResponse doc =
+isPosResponse res =
     bool $ fromDocument doc $| laxElement "StartApplicationSessionPosResponse"
-
+  where
+    doc = parseResponse res
 
 parseSessionId  = sessionId . parseResponse
 parseDeviceId   = deviceId  . parseResponse
@@ -152,7 +166,7 @@ el doc name =
 -- 4.2 "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv3"
 -- 5.2 "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv4"
 -- 6.1 "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv5"
-protocol = "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv4"
+protocol = "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv3"
 delay    = "5"
 
 -- Amount of time in seconds that a session will remain active.
@@ -160,133 +174,76 @@ duration = "180"
 
 
 startAppSession =
-    B.concat
-      [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-      , "<StartApplicationSession xmlns=\"http://www.ecma-international.org/standards/ecma-354/appl_session\">"
-      ,     "<applicationInfo>"
-      ,         "<applicationID>TestApp</applicationID>"
-      ,         "<applicationSpecificInfo>"
-      ,             "<ns1:SessionLoginInfo xsi:type=\"ns1:SessionLoginInfo\" xmlns:ns1=\"http://www.avaya.com/csta\""
-      ,               " xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">"
-      ,                   "<ns1:userName>", username, "</ns1:userName>"
-      ,                   "<ns1:password>", password, "</ns1:password>"
-      ,                   "<ns1:sessionCleanupDelay>", delay, "</ns1:sessionCleanupDelay>"
-      ,             "</ns1:SessionLoginInfo>"
-      ,         "</applicationSpecificInfo>"
-      ,     "</applicationInfo>"
-      ,     "<requestedProtocolVersions>"
-      ,         "<protocolVersion>", protocol, "</protocolVersion>"
-      ,     "</requestedProtocolVersions>"
-      ,     "<requestedSessionDuration>", duration, "</requestedSessionDuration>"
-      , "</StartApplicationSession>" ]
+    d "StartApplicationSession" "http://www.ecma-international.org/standards/ecma-354/appl_session" [xml|
+<applicationInfo>
+    <applicationID>TestApp
+    <applicationSpecificInfo>
+        <ns1:SessionLoginInfo xsi:type="ns1:SessionLoginInfo" xmlns:ns1="http://www.avaya.com/csta" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <ns1:userName>#{username}
+            <ns1:password>#{password}
+            <ns1:sessionCleanupDelay>#{delay}
+<requestedProtocolVersions>
+    <protocolVersion>#{protocol}
+<requestedSessionDuration>#{duration}
+|]
 
 
-------------------------------------------------------------------------------
-startAppSessionPosResp =
-    B.concat
-      [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-      , "<StartApplicationSessionPosResponse xmlns=\"http://www.ecma-international.org/standards/ecma-354/appl_session\">"
-      ,     "<sessionID>469421A9364D46D6444524AE41BEAD72-0</sessionID>"
-      ,     "<actualProtocolVersion>", protocol, "</actualProtocolVersion>"
-      ,     "<actualSessionDuration>180</actualSessionDuration>"
-      , "</StartApplicationSessionPosResponse>" ]
-
-
-startAppSessionNegResp =
-    B.concat
-      [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-      , "<StartApplicationSessionNegResponse xmlns=\"http://www.ecma-international.org/standards/ecma-354/appl_session\">"
-      ,     "<errorCode>"
-      ,         "<definedError>invalidApplicationInfo</definedError>"
-      ,     "</errorCode>"
-      , "</StartApplicationSessionNegResponse>" ]
-
-
-------------------------------------------------------------------------------
 resetApplicationSessionTimer =
-    B.concat
-      [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-      , "<ResetApplicationSessionTimer xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\""
-      ,   "xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns=\"http://www.ecma-international.org/standards/ecma-354/appl_session\">"
-      ,     "<sessionID>469421A9364D46D6444524AE41BEAD72-0</sessionID>"
-      ,     "<requestedSessionDuration>180</requestedSessionDuration>"
-      , "</ResetApplicationSessionTimer>" ]
+    d "ResetApplicationSessionTimer" "http://www.ecma-international.org/standards/ecma-354/appl_session" [xml|
+<sessionID>469421A9364D46D6444524AE41BEAD72-0
+<requestedSessionDuration>180
+|]
 
 
-resetApplicationSessionTimerPosResponse = undefined
-resetApplicationSessionTimerNegResponse = undefined
-
-
-------------------------------------------------------------------------------
 getDeviceIdMessage =
-    B.concat
-      [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-      , "<GetDeviceId xmlns=\"http://www.avaya.com/csta\">"
-      ,     "<switchName>", callServerIp ,"</switchName>"
-      ,     "<extension>", extension, "</extension>"
-      , "</GetDeviceId>" ]
+    d "GetDeviceId" "http://www.avaya.com/csta" [xml|
+<switchName>#{callServerIp}
+<extension>#{extension}
+|]
 
 
-getDeviceIdResponseMessage =
-    B.concat
-      [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-      , "<GetDeviceIdResponse xmlns=\"http://www.avaya.com/csta\">"
-      ,     "<device typeOfNumber=\"other\" mediaClass=\"voice\""
-      ,       "bitRate=\"constant\">4750::111.2.33.444:0</device>"
-      , "</GetDeviceIdResponse>" ]
+monitorStartMessage deviceId =
+    d "MonitorStart" protocol [xml|
+<monitorObject>
+    <deviceObject typeOfNumber="other" mediaClass="notKnown">#{deviceId}
+<requestedMonitorFilter>
+    <physicalDeviceFeature>
+        <displayUpdated>true
+        <hookswitch>false
+        <lampMode>true
+        <ringerStatus>false
+<extensions>
+    <privateData>
+        <private>
+            <AvayaEvents>
+                <invertFilter>true
+|]
+
+
+monitorStopMessage monitorId =
+    d "MonitorStop" "http://www.avaya.com/csta" [xml|
+<monitorCrossRefID>#{monitorId}
+|]
+
+
+releaseDeviceIdMessage deviceId =
+    d "ReleaseDeviceId" "http://www.avaya.com/csta" [xml|
+<device>#{deviceId}
+|]
+
+
+stopAppSession sessionId =
+    d "StopApplicationSession" "http://www.ecma-international.org/standards/ecma-354/appl_session" [xml|
+<sessionID>#{sessionId}
+<sessionEndReason>
+    <definedEndReason>normal
+|]
 
 
 ------------------------------------------------------------------------------
-monitorStartMessage deviceId =
-    B.concat
-      [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-      , "<MonitorStart xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns=\"http://www.ecma-international.org/standards/ecma-323/csta/ed3\">"
-      ,     "<monitorObject>"
-      ,         "<deviceObject typeOfNumber=\"other\" mediaClass=\"notKnown\">", deviceId, "</deviceObject>"
-      ,     "</monitorObject>"
-      ,     "<requestedMonitorFilter>"
-      ,         "<physicalDeviceFeature>"
-      ,             "<displayUpdated>true</displayUpdated>"
-      ,             "<hookswitch>false</hookswitch>"
-      ,             "<lampMode>true</lampMode>"
-      ,             "<ringerStatus>false</ringerStatus>"
-      ,         "</physicalDeviceFeature>"
-      ,     "</requestedMonitorFilter>"
-      ,     "<extensions>"
-      ,         "<privateData>"
-      ,             "<private>"
-      ,                 "<AvayaEvents>"
-      ,                     "<invertFilter>true</invertFilter>"
-      ,                 "</AvayaEvents>"
-      ,             "</private>"
-      ,         "</privateData>"
-      ,     "</extensions>"
-      , "</MonitorStart>" ]
-
-
-monitorStartResponceMessage =
-    B.concat
-      [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-      , "<MonitorStartResponse xmlns=\"http://www.ecma-international.org/standards/ecma-323/csta/ed3\">"
-      ,     "<monitorCrossRefID>1</monitorCrossRefID>"
-      ,     "<actualMonitorFilter>"
-      ,         "<physicalDeviceFeature>"
-      ,             "<displayUpdated>true</displayUpdated>"
-      ,             "<hookswitch>false</hookswitch>"
-      ,             "<lampMode>true</lampMode>"
-      ,             "<ringerStatus>false</ringerStatus>"
-      ,         "</physicalDeviceFeature>"
-      ,     "</actualMonitorFilter>"
-      ,     "<extensions>"
-      ,         "<privateData>"
-      ,             "<private>"
-      ,                 "<AvayaEvents xmlns:ns1=\"http://www.avaya.com/csta\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:type=\"AvayaEvents\">"
-      ,                     "<invertFilter>true</invertFilter>"
-      ,                 "</AvayaEvents>"
-      ,             "</private>"
-      ,         "</privateData>"
-      ,     "</extensions>"
-      , "</MonitorStartResponse>" ]
+d name namespace ns = renderLBS def $ Document (Prologue [] Nothing []) root []
+  where
+    root = Element name [("xmlns", namespace)] ns
 
 
 ------------------------------------------------------------------------------
@@ -314,11 +271,3 @@ firstSuccessful (p:ps) = catchIO p $ \e ->
     case ps of
         [] -> throw e
         _  -> firstSuccessful ps
-
-
-------------------------------------------------------------------------------
-toName s = Name {
-             nameLocalName = s
-           , nameNamespace = Just "http://www.ecma-international.org/standards/ecma-354/appl_session"
-           , namePrefix = Nothing
-           }
