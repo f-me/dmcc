@@ -9,19 +9,28 @@ Maintainer:          timofey@formalmethods.ru
 Category:            Network
 Build-type:          Simple
 Cabal-version:       >=1.6
+Extra-source-files:  README examples/Test.hs
 
 Library
   Hs-source-dirs: src
   Exposed-modules:
     Network.Avaya
 
+  Other-modules:
+    Network.Avaya.Messages
+    Network.Avaya.Types
+
   Build-depends:
-    base        == 4.*,
-    binary,
-    bytestring  == 0.9.*,
-    network,
-    text,
-    xml-conduit == 0.5.*
+    base		== 4.*,
+    binary		== 0.5.*,
+    bytestring		== 0.9.*,
+    bytestring-lexing	== 0.4.*,
+    mtl                 == 2.0.*,
+    network		== 2.3.*,
+    stm                 == 2.2.*,
+    text		== 0.11.*,
+    xml-conduit         == 0.5.*,
+    xml-hamlet          == 0.2.*
 
 source-repository head
   type:     git

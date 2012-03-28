@@ -1,36 +1,50 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
 
-module Network.Avaya where
+module Network.Avaya
+    ( Avaya
+    , AvayaException
+    , Conf (..)
+    , runClient
+    , call
+    ) where
 
 import           Prelude hiding (catch, getContents)
 import           Control.Applicative
-import           Control.Exception
 import           Control.Monad
-import           Data.List
+import           Control.Exception
 import           Data.Binary.Get
 import           Data.Binary.Put
 import qualified Data.ByteString.Lazy.Char8 as B
+import           Data.Maybe
 import           Data.Word
-import           Network.Socket hiding (send, sendTo, recv, recvFrom)
-import           Network.Socket.ByteString.Lazy
+import           Network
+import           System.IO
 
+import           Control.Concurrent
+import           Control.Concurrent.STM
+import           Control.Concurrent.STM.TChan
+import           Control.Monad.Error
+import           Control.Monad.State
+import           Data.ByteString.Lex.Integral (packDecimal, readDecimal_)
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as L
-import           Data.Text.Lazy.Encoding
-import           Text.Hamlet.XML
 import           Text.XML
 import           Text.XML.Cursor
 
+import           Network.Avaya.Messages
+import           Network.Avaya.Types
 
-host         = "192.168.20.5"  -- AES IP address
-port         = "4721"          -- default AES ports are 4721 and 4722
-username     = "dev"
-password     = "1qaz@WSX"
-callServerIp = "192.168.20.2"  -- ?
-extension    = "4750"          -- ?
+import Debug.Trace
+
+debug = flip trace
 
 
+call :: String -> Avaya ()
+call ns = do
+    setHookswitchStatus
+    mapM_ (buttonPress . T.singleton) ns
+
+
+------------------------------------------------------------------------------
 -- | Four specific XML messages must be constructed by the application
 -- and sent to the connector server in order to get started:
 --
@@ -40,69 +54,156 @@ extension    = "4750"          -- ?
 -- 4. RegisterTerminal - required only for device/media control
 -- applications, and not for applications using call control
 -- exclusively.
-test = withSocketsDo $ do
-    sock <- connectTo host port
+--
+-- TODO: multiple devices in one session.
+runClient :: Conf -> Avaya a -> IO (Either AvayaException ())
+runClient conf act = withSocketsDo $ do
+    h <- connectTo host (PortNumber port)
+    hSetBuffering h LineBuffering
 
-    -- Establish an application session.
-    sendRequest sock startAppSession "0001"
-    res <- recvResponse sock
-    putStrLn $ "* startAppSessionResponse:\n" ++ B.unpack res
+    input  <- newTChanIO
+    output <- newTChanIO
 
-    let sessionId = parseSessionId res
+    forkIO $ loopRead h input
+    forkIO $ loopWrite h output 0
 
-    when (isPosResponse res) $ do
-        -- Get device identifier.
-        sendRequest sock getDeviceIdMessage "0002"
-        res <- recvResponse sock
-        putStrLn $ "* getDeviceIdResponseMessage:\n" ++ B.unpack res
+    startAvaya input output $ do
+        startAppSession conf
+        requestDeviceId conf
+        monitorStart
+        registerTerminal conf
 
-        let devId = parseDeviceId res
+        act
 
-        when (not $ T.null devId) $ do
-            -- Request notification of events.
-            sendRequest sock (monitorStartMessage devId) "0003"
-            res <- recvResponse sock
-            putStrLn $ "* monitorStartResponseMessage:\n" ++ B.unpack res
-
-            let monId = parseMonitorId res
-
-            telephonyLogic
-            cleanUp sock monId devId sessionId
+        cleanup
+  where
+    host = cHost conf
+    port = cPort conf
 
 
-telephonyLogic = putStrLn "No telephony logic implemented in this example application."
+loopRead h ch = do
+    header <- B.hGet h 8  -- get header (first 8 bytes)
+
+    when (B.length header /= 0) $ do
+        let header' = runGet getHeader header
+
+        res    <- B.hGet h (fromIntegral $ hLength header')
+
+        if hInvokeId header' < 9999
+          then atomically $ writeTChan ch res
+          else putStrLn $ "* 9999:\n" ++ B.unpack res
+
+        loopRead h ch
 
 
-cleanUp sock monId devId sessionId = do
+loopWrite h ch idx = do
+    mess <- atomically $ readTChan ch
+    B.hPut h (runPut $ putHeader mess (packInvokeId idx))
+    loopWrite h ch (nextIdx idx)
+  where
+    nextIdx i = if i < 9998
+                  then i + 1
+                  else 0
+
+    packInvokeId i = addNulls $ B.fromChunks [ fromJust $ packDecimal i ]
+
+    addNulls x = B.replicate (4 - B.length x) '0' `B.append` x
+
+
+-- Establish an application session.
+startAppSession conf = do
+    writeChanA $ startAppSessionMessage conf
+    res <- readChanA
+
+    setSessionId $ parseSessionId res
+    setProtocol $ parseProtocol res
+
+    liftIO $ putStrLn $ "* startAppSessionResponse:\n" ++ B.unpack res
+
+
+requestDeviceId conf = do
+    writeChanA $ getDeviceIdMessage conf
+    res <- readChanA
+
+    setDeviceId $ parseDeviceId res
+
+    liftIO $ putStrLn $ "* getDeviceIdResponseMessage:\n" ++ B.unpack res
+
+
+-- Request notification on events.
+monitorStart = do
+    mess <- monitorStartMessage <$> getProtocol <*> getDeviceId
+
+    writeChanA mess
+    res <- readChanA
+
+    setMonitorId $ parseMonitorId res
+
+    liftIO $ putStrLn $ "* monitorStartResponseMessage:\n" ++ B.unpack res
+
+
+registerTerminal conf = do
+    mess <- registerTerminalRequestMessage conf <$> getDeviceId
+
+    liftIO $ putStrLn $ "* registerTerminalRequestMessage:\n" ++ B.unpack mess
+
+    writeChanA mess
+    res <- readChanA
+
+    liftIO $ putStrLn $ "* registerTerminalResponseMessage:\n" ++ B.unpack res
+
+
+setHookswitchStatus = do
+    mess <- setHookswitchStatusMessage <$> getProtocol <*> getDeviceId
+
+    writeChanA mess
+    res <- readChanA
+
+    liftIO $ putStrLn $ "* setHookswitchStatusResponseMessage:\n" ++ B.unpack res
+
+
+buttonPress button = do
+    mess <- buttonPressMessage button <$> getProtocol <*> getDeviceId
+
+    writeChanA mess
+    res <- readChanA
+
+    liftIO $ putStrLn $ "* buttonPressResponseMessage:\n" ++ B.unpack res
+
+
+cleanup = do
     -- Stop monitoring the events.
-    sendRequest sock (monitorStopMessage monId) "0004"
-    res <- recvResponse sock
-    putStrLn $ "* monitorStopResponseMessage:\n" ++ B.unpack res
+    monId <- getMonitorId
+    writeChanA $ monitorStopMessage monId
+    res <- readChanA
+    liftIO $ putStrLn $ "* monitorStopResponseMessage:\n" ++ B.unpack res
 
     -- Release the device identifier.
-    sendRequest sock (releaseDeviceIdMessage devId) "0005"
-    res <- recvResponse sock
-    putStrLn $ "* releaseDeviceResponseMessage:\n" ++ B.unpack res
+    devId <- getDeviceId
+    writeChanA $ releaseDeviceIdMessage devId
+    res <- readChanA
+    liftIO $ putStrLn $ "* releaseDeviceResponseMessage:\n" ++ B.unpack res
 
     -- Close the app session.
-    sendRequest sock (stopAppSession sessionId) "0006"
-    res <- recvResponse sock
-    putStrLn $ "* stopAppSessionResponseMessage:\n" ++ B.unpack res
+    sId <- getSessionId
+    writeChanA $ stopAppSession sId
+    res <- readChanA
+    liftIO $ putStrLn $ "* stopAppSessionResponseMessage:\n" ++ B.unpack res
 
 
 ------------------------------------------------------------------------------
-sendRequest :: Socket -> B.ByteString -> B.ByteString -> IO ()
-sendRequest sock request invokeId = do
-    -- hPutStr h . B.unpack . runPut $ putHeader request invokeId  -- FIXME: maybe Network.Socket.ByteString?
-    send sock . runPut $ putHeader request invokeId  -- FIXME: send function is Unix only
-    return ()
+-- sendRequest :: B.ByteString -> Avaya ()
+-- sendRequest request = do
+--     h <- getHandle
+--     invokeId <- nextInvokeId
+--     liftIO $ B.hPut h (runPut $ putHeader request invokeId)
 
 
-recvResponse :: Socket -> IO B.ByteString
-recvResponse sock = do
-    --    B.concat . (map B.pack) <$> doread id
-    header <- runGet getHeader <$> recv sock 8
-    recv sock . fromIntegral $ cLength header
+-- recvResponse :: Avaya B.ByteString
+-- recvResponse = do
+--     h <- getHandle
+--     header <- liftIO $ runGet getHeader <$> B.hGet h 8  -- parse header (first 8 bytes)
+--     liftIO $ B.hGet h (fromIntegral $ hLength header)
 
 
 ------------------------------------------------------------------------------
@@ -111,9 +212,9 @@ recvResponse sock = do
 -- |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  | ...        |
 -- |  Version  |   Length  |       InvokeID        | XML Message Body |
 data CstaHeader = CstaHeader {
-      cVersion  :: Word16
-    , cLength   :: Word16
-    , cInvokeId :: Word32  -- ^ request and response XML messages must use Invoke IDs between 0 and 9998
+      hVersion  :: Word16
+    , hLength   :: Word16
+    , hInvokeId :: Int  -- ^ request and response XML messages must use Invoke IDs between 0 and 9998
     }
 
 
@@ -129,7 +230,7 @@ getHeader :: Get CstaHeader
 getHeader = do
     version  <- getWord16be
     length   <- getWord16be
-    invokeId <- getWord32be
+    invokeId <- readDecimal_ <$> getByteString 4
     return $ CstaHeader version (length - 8) invokeId
 
 
@@ -143,131 +244,19 @@ isPosResponse res =
   where
     doc = parseResponse res
 
+
 parseSessionId  = sessionId . parseResponse
+parseProtocol   = protocol . parseResponse
 parseDeviceId   = deviceId  . parseResponse
 parseMonitorId  = monitorId . parseResponse
 
 
 sessionId doc = el doc "sessionID"
+protocol  doc = el doc "actualProtocolVersion"
 deviceId  doc = el doc "device"
 monitorId doc = el doc "monitorCrossRefID"
 
 
 el doc name =
-    head $ fromDocument doc $/  laxElement name  -- FIXME: head on empty list!
+    head $ fromDocument doc $/  laxElement name  -- FIXME: head on empty list
                             &// content
-
-------------------------------------------------------------------------------
--- Each release adds functionality to the previous releases
--- 3.0 "3.0"
--- 3.1 "http://www.ecma-international.org/standards/ecma-323/csta/ed2/priv1"
--- 4.0 "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv1"
--- 4.1 "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv2"
--- 4.2 "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv3"
--- 5.2 "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv4"
--- 6.1 "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv5"
-protocol = "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv3"
-delay    = "5"
-
--- Amount of time in seconds that a session will remain active.
-duration = "180"
-
-
-startAppSession =
-    d "StartApplicationSession" "http://www.ecma-international.org/standards/ecma-354/appl_session" [xml|
-<applicationInfo>
-    <applicationID>TestApp
-    <applicationSpecificInfo>
-        <ns1:SessionLoginInfo xsi:type="ns1:SessionLoginInfo" xmlns:ns1="http://www.avaya.com/csta" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-            <ns1:userName>#{username}
-            <ns1:password>#{password}
-            <ns1:sessionCleanupDelay>#{delay}
-<requestedProtocolVersions>
-    <protocolVersion>#{protocol}
-<requestedSessionDuration>#{duration}
-|]
-
-
-resetApplicationSessionTimer =
-    d "ResetApplicationSessionTimer" "http://www.ecma-international.org/standards/ecma-354/appl_session" [xml|
-<sessionID>469421A9364D46D6444524AE41BEAD72-0
-<requestedSessionDuration>180
-|]
-
-
-getDeviceIdMessage =
-    d "GetDeviceId" "http://www.avaya.com/csta" [xml|
-<switchName>#{callServerIp}
-<extension>#{extension}
-|]
-
-
-monitorStartMessage deviceId =
-    d "MonitorStart" protocol [xml|
-<monitorObject>
-    <deviceObject typeOfNumber="other" mediaClass="notKnown">#{deviceId}
-<requestedMonitorFilter>
-    <physicalDeviceFeature>
-        <displayUpdated>true
-        <hookswitch>false
-        <lampMode>true
-        <ringerStatus>false
-<extensions>
-    <privateData>
-        <private>
-            <AvayaEvents>
-                <invertFilter>true
-|]
-
-
-monitorStopMessage monitorId =
-    d "MonitorStop" "http://www.avaya.com/csta" [xml|
-<monitorCrossRefID>#{monitorId}
-|]
-
-
-releaseDeviceIdMessage deviceId =
-    d "ReleaseDeviceId" "http://www.avaya.com/csta" [xml|
-<device>#{deviceId}
-|]
-
-
-stopAppSession sessionId =
-    d "StopApplicationSession" "http://www.ecma-international.org/standards/ecma-354/appl_session" [xml|
-<sessionID>#{sessionId}
-<sessionEndReason>
-    <definedEndReason>normal
-|]
-
-
-------------------------------------------------------------------------------
-d name namespace ns = renderLBS def $ Document (Prologue [] Nothing []) root []
-  where
-    root = Element name [("xmlns", namespace)] ns
-
-
-------------------------------------------------------------------------------
-connectTo :: HostName -> ServiceName -> IO Socket
-connectTo host port = do
-    addrs <- getAddrInfo Nothing (Just host) (Just port)
-    firstSuccessful $ map tryToConnect addrs
-  where
-    tryToConnect addr =
-        bracketOnError
-          (socket (addrFamily addr) Stream defaultProtocol)
-          (sClose)
-          (\sock -> do
-             connect sock (addrAddress addr)
-             return sock)
-
-
-catchIO :: IO a -> (IOException -> IO a) -> IO a
-catchIO = catch
-
-
-firstSuccessful :: [IO a] -> IO a
-firstSuccessful [] = error "firstSuccessful: empty list"
-firstSuccessful (p:ps) = catchIO p $ \e ->
-    case ps of
-        [] -> throw e
-        _  -> firstSuccessful ps
