@@ -31,6 +31,24 @@ instance Error AvayaException where
     strMsg = error
 
 
+data Event = Event
+    { eventMonitor :: T.Text
+    , eventDevice  :: T.Text
+    , eventType    :: EventType
+    } deriving (Show)
+
+
+data EventType
+    = Hookswitch  -- ^ the switch has changed the device's hookswitch status
+        { hookswitchId     :: T.Text
+        , hookswitchOnHook :: Bool
+        }
+    | DisplayUpdated
+    | LampMode
+    | RingerStatus
+      deriving (Show)
+
+
 data Conf = Conf
     { cHost         :: HostName    -- ^ AES host name
     , cPort         :: PortNumber  -- ^ AES port number - default port is 4721

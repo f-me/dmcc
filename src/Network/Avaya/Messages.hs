@@ -92,11 +92,11 @@ registerTerminalRequestMessage (Conf { cPassword = password }) deviceId =
 |]
 
 
-setHookswitchStatusMessage protocol deviceId =
+setHookswitchStatusMessage onHook protocol deviceId =
     d "SetHookswitchStatus" protocol [xml|
 <device typeOfNumber="other" mediaClass="notKnown">#{deviceId}
-<hookswitch>0
-<hookswitchOnhook>false
+<hookswitch>0000
+<hookswitchOnhook>#{onHook}
 |]
 
 

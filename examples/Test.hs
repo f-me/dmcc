@@ -2,7 +2,7 @@
 
 import Network.Avaya
 
-test = runClient conf $ call "989150011111"
+test = runClient conf print $ call "989150011111"
   where
     conf = Conf { cHost         = "192.168.20.5"
                 , cPort         = 4721
@@ -11,7 +11,7 @@ test = runClient conf $ call "989150011111"
                 , cDelay        = "5"
                 , cVersion      = "4.2"
                 , cDuration     = "180"
-                , cCallServerIp = "192.168.20.2"
+                , cCallServerIp = "S8300ADAC"
                 , cExtension    = "142"
                 , cPassword     = "1234567"
                 }
