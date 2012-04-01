@@ -39,10 +39,11 @@ data Event = Event
 
 
 data EventType
-    = Hookswitch  -- ^ the switch has changed the device's hookswitch status
+    = Hookswitch
         { hookswitchId     :: T.Text
         , hookswitchOnHook :: Bool
         }
+    -- ^ the switch has changed the device's hookswitch status
     | DisplayUpdated
     | LampMode
     | RingerStatus

@@ -48,8 +48,11 @@ call ns = do
 -- and sent to the connector server in order to get started:
 --
 -- 1. StartApplicationSession;
+--
 -- 2. GetDeviceId;
+--
 -- 3. MonitorStart;
+--
 -- 4. RegisterTerminal - required only for device/media control
 -- applications, and not for applications using call control
 -- exclusively.
