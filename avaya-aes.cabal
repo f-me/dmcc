@@ -18,7 +18,10 @@ Library
 
   Other-modules:
     Network.Avaya.Messages
+    Network.Avaya.Parse
     Network.Avaya.Types
+
+  ghc-options: -Wall -fno-warn-unused-do-bind
 
   Build-depends:
     base                == 4.*,
