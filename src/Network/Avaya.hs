@@ -4,6 +4,9 @@ module Network.Avaya
     ( Avaya
     , AvayaException
     , Conf (..)
+    , Callback
+    , Event(..)
+    , EventType(..)
     , runClient
     , call
     ) where
@@ -58,7 +61,7 @@ call ns = do
 -- exclusively.
 --
 -- TODO: multiple devices in one session.
-runClient :: Conf -> (Event -> IO ()) -> Avaya a -> IO (Either AvayaException ())
+runClient :: Conf -> Callback -> Avaya a -> IO (Either AvayaException ())
 runClient conf callback act = withSocketsDo $ do
     h <- connectTo host (PortNumber port)
     hSetBuffering h LineBuffering
@@ -85,7 +88,7 @@ runClient conf callback act = withSocketsDo $ do
     port = cPort conf
 
 
-loopRead :: Handle -> TChan B.ByteString -> (Event -> IO ()) -> IO ()
+loopRead :: Handle -> TChan B.ByteString -> Callback -> IO ()
 loopRead h ch callback = do
     res <- B.hGet h 8  -- get header (first 8 bytes)
 

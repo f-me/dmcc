@@ -90,6 +90,10 @@ defaultSession =
 type Avaya a = ErrorT AvayaException (StateT Session IO) a
 
 
+-- | Avaya action callback.
+type Callback = Event -> IO ()
+
+
 startAvaya input output avaya = fst <$> (runStateT (runErrorT avaya) $ defaultSession {sIn = Just input , sOut = Just output})
 
 
