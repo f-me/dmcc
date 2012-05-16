@@ -1,0 +1,17 @@
+Name:                xsd2hs
+Version:             0.1
+Synopsis:            Custom tool for converting directory with XML schemas to specific haskell code
+License:             PublicDomain
+Author:              Evgeny Omelchenko
+Maintainer:          elemir@formalmethods.ru
+
+Category:            XML
+Build-type:          Simple
+
+Cabal-version:       >=1.2
+
+
+Executable xsd2hs
+  Main-is:           xsd2hs.hs
+  
+  Build-depends:     base, HaXml, pretty, polyparse, directory
