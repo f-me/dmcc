@@ -1,16 +1,13 @@
 module Main where
 
 import Data.Char
-import System.Directory
+import Data.Maybe
 import System.Environment
-import System.Exit
+import System.FilePath
 import System.IO
-import Control.Monad
 
-import Text.XML.HaXml            (version)
 import Text.XML.HaXml.Types
-import Text.XML.HaXml.Namespaces (resolveAllNames,qualify
-                                 ,nullNamespace)
+import Text.XML.HaXml.Namespaces (resolveAllNames,qualify)
 import Text.XML.HaXml.Parse      (xmlParse')
 import Text.XML.HaXml.Util       (docContent)
 import Text.XML.HaXml.Posn       (posInNewCxt)
@@ -21,69 +18,79 @@ import Text.XML.HaXml.Schema.NameConversion
 import Text.XML.HaXml.Schema.TypeConversion
 import Text.XML.HaXml.Schema.PrettyHaskell
 import qualified Text.XML.HaXml.Schema.HaskellTypeModel as Haskell
+import qualified Text.XML.HaXml.Schema.XSDTypeModel as XSD
 import Text.ParserCombinators.Poly
-import Text.PrettyPrint.HughesPJ (render,vcat)
+import Text.PrettyPrint.HughesPJ (render)
 
-usage :: IO a
-usage =
-  do
-    prog <- getProgName
-    putStrLn $ "usage: " ++ prog ++ "<dir>"
-    exitFailure
-
-getDirName :: IO String
-getDirName = 
-  do
-    args <- getArgs
-    case args of
-      [] -> usage
-      x:xs -> return x
-
-extractModuleName :: String -> Maybe String
-extractModuleName str =
+xsdName :: String -> Maybe String
+xsdName str =
     if tl == ".xsd"
-      then Just $ loop hd True ""
+      then Just hd
       else Nothing
   where
     (hd, tl) = break (== '.') str
 
+moduleName :: String -> String
+moduleName str =
+    loop str True
+  where
     upper :: Bool -> Char -> Char
     upper True = toUpper
     upper False = id
 
-    loop :: String -> Bool -> String -> String
-    loop "" _ s = s
-    loop (x:xs) b s =
+    loop "" _ = ""
+    loop (x:xs) b =
       if (x == '-')
-        then loop xs True s
-        else loop xs False $ (upper b x):s
+        then loop xs True
+        else (upper b x):(loop xs False)
 
-convertFile :: FilePath -> String -> IO ()
-convertFile dir name =
-  case extractModuleName name of
-    Just mname ->
-      do
-        content <- readFile $ dir ++ "/" ++ name
-        o <- openFile ("src/Data/Avaya/" ++ mname ++ ".hs") WriteMode
-        let d@Document{} = resolveAllNames qualify
-                         . either (error . ("not XML:\n"++)) id
-                         . xmlParse' name
-                         $ content
-        case runParser schema [docContent (posInNewCxt name Nothing) d] of
-          (Left msg, _) ->  hPutStrLn stderr msg
-          (Right v, []) ->
-            hPutStrLn o $ render doc
-           where
-            decls = convert (mkEnvironment mname v emptyEnv) v
-            haskl = Haskell.mkModule mname v decls
-            doc   = ppModule simpleNameConverter haskl
-          (Right v, _)  -> hPutStrLn stderr "Parse incomplete!"
-    Nothing -> return ()
+maybeSum :: (a -> b -> b) -> (Maybe a) -> (Maybe b) -> (Maybe b)
+maybeSum f ma = maybe Nothing (\b -> Just $ maybe b (\a -> f a b) ma)
+
+convertFile :: FilePath -> IO (Maybe Environment)
+convertFile fname =
+    if ext == ".xsd"
+      then
+        do
+          content <- readFile fname
+          o <- openFile ("src/Data/Avaya/Generated/" ++ mname ++ ".hs") WriteMode
+          let d@Document{} = resolveAllNames qualify
+                           . either (error . ("not XML:\n"++)) id
+                           . xmlParse' fname'
+                           $ content
+          case runParser schema [docContent (posInNewCxt fname' Nothing) d] of
+            (Left msg, _) -> 
+              do
+                hPutStrLn stderr $ fname ++ ": " ++ msg
+                return Nothing
+            (Right v, []) ->
+              do
+                envs <- mapM convertFile $ mapMaybe fromInclude $ XSD.schema_items v
+                let env = foldl combineEnv emptyEnv $ catMaybes envs
+                    nenv = mkEnvironment mname v env
+                    decls = convert nenv v
+                    haskl = Haskell.mkModule ("Data.Avaya.Generated." ++ mname) v decls
+                    doc   = ppModule simpleNameConverter haskl
+                hPutStrLn o $ render doc
+                hFlush o
+                hPutStrLn stderr $ "Generated haskell file from " ++ fname
+                return $ Just nenv 
+             where
+              fromInclude (XSD.Include a _) = Just $ dname </> a
+              fromInclude _ = Nothing
+            (Right _, _)  ->
+              do
+                hPutStrLn stderr $ fname ++ ": parsing incomplete!"
+                return Nothing
+      else return Nothing
+  where
+    (dname, fname') = splitFileName fname
+    (bname, ext) = splitExtension fname'
+    mname = moduleName bname
 
 main :: IO ()
 main =
   do
-    name <- getDirName
-    filelist <- getDirectoryContents name
-    mapM_ (convertFile name) filelist
+    names <- getArgs
+    mapM_ convertFile names
     

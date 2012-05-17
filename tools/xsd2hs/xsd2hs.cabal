@@ -10,8 +10,7 @@ Build-type:          Simple
 
 Cabal-version:       >=1.2
 
-
 Executable xsd2hs
   Main-is:           xsd2hs.hs
-  
-  Build-depends:     base, HaXml, pretty, polyparse, directory
+  Ghc-Options:       -Wall
+  Build-depends:     base, HaXml, pretty, polyparse, directory, filepath

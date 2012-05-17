@@ -9,9 +9,8 @@ APPL_SESSION_XSD=("stop-application-session.xsd"
 [ $# -eq 0 ] && echo "usage: $0 <cmapixml-sdk path>" 2>/dev/null && exit 1
 
 tar -xjf $1
-for file in $(cat xsd/list); do
-    cp $file xsd
-done
+cp cmapixml-sdk/avaya-csta-schemas/* xsd
+cp avaya-csta-schemas/* xsd
 rm -rf cmapixml-sdk
 
 pushd xsd
@@ -28,7 +27,7 @@ if [[ ! -d "$DEPS_DIR" ]]; then
 fi
 
 cd "$DEPS_DIR"
-repos_to_rebuild=("$AVAYA_AES_DIR/toold/xsd2hs")
+repos_to_rebuild=("$AVAYA_AES_DIR/tools/xsd2hs")
 
 for repo in "${REPOS[@]}" ; do
   rPath=${repo##*/}
@@ -85,15 +84,15 @@ for repo in "${REPOS[@]}"; do
   CheckRepo $rPath
 done
 
-
 cd "$AVAYA_AES_DIR"
+
 for repo in "${repos_to_rebuild[@]}"; do
   cabal-dev add-source $repo
 done
 
 for repo in "${repos_to_rebuild[@]}"; do
   package_name=${repo##*/}
-  cabal-dev install --reinstall $package_name
+  cabal-dev install --force-reinstalls --reinstall $package_name
   if [[ ! $? -eq 0 ]]; then
     exit 1
   fi
@@ -106,8 +105,7 @@ if [[ $FRESH_BUILD -eq 1 ]]; then
   fi
 fi
 
-./cabal-dev/bin/xsd2hs xsd
-
+./cabal-dev/bin/xsd2hs xsd/start-application-session.xsd xsd/stop-application-session.xsd xsd/reset-application-session-timer.xsd xsd/avaya-csta.xsd 
 cabal-dev configure
 cabal-dev build
 cabal-dev install
