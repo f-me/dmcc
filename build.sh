@@ -8,10 +8,11 @@ APPL_SESSION_XSD=("stop-application-session.xsd"
                   "reset-application-session-timer.xsd")
 [ $# -eq 0 ] && echo "usage: $0 <cmapixml-sdk path>" 2>/dev/null && exit 1
 
-tar -xjf $1
-cp cmapixml-sdk/avaya-csta-schemas/* xsd
-cp avaya-csta-schemas/* xsd
-rm -rf cmapixml-sdk
+if [[ ! -d "cmapixml-sdk" ]]; then
+  tar -xjf $1
+  cp cmapixml-sdk/xsd/avaya-csta-schemas/* xsd/
+  cp cmapixml-sdk/xsd/csta-schemas/* xsd/
+fi
 
 pushd xsd
 for xsd in "${APPL_SESSION_XSD[@]}"; do

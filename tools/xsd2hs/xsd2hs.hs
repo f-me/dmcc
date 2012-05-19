@@ -6,6 +6,8 @@ import System.Environment
 import System.FilePath
 import System.IO
 
+import Network.HTTP
+
 import Text.XML.HaXml.Types
 import Text.XML.HaXml.Namespaces (resolveAllNames,qualify)
 import Text.XML.HaXml.Parse      (xmlParse')
@@ -21,6 +23,8 @@ import qualified Text.XML.HaXml.Schema.HaskellTypeModel as Haskell
 import qualified Text.XML.HaXml.Schema.XSDTypeModel as XSD
 import Text.ParserCombinators.Poly
 import Text.PrettyPrint.HughesPJ (render)
+
+data XsdAddress = XsdFile FilePath | XsdHttp String
 
 xsdName :: String -> Maybe String
 xsdName str =
@@ -47,50 +51,78 @@ moduleName str =
 maybeSum :: (a -> b -> b) -> (Maybe a) -> (Maybe b) -> (Maybe b)
 maybeSum f ma = maybe Nothing (\b -> Just $ maybe b (\a -> f a b) ma)
 
-convertFile :: FilePath -> IO (Maybe Environment)
-convertFile fname =
-    if ext == ".xsd"
-      then
+convertFromAddress :: XsdAddress -> IO (Maybe Environment)
+convertFromAddress addr =
+    case addr of
+      XsdFile fname ->
+        if ext == ".xsd"
+          then do
+            content <- readFile fname
+            convertFromContent content
+          else return Nothing
+        where
+      XsdHttp http ->
         do
-          content <- readFile fname
-          o <- openFile ("src/Data/Avaya/Generated/" ++ mname ++ ".hs") WriteMode
-          let d@Document{} = resolveAllNames qualify
-                           . either (error . ("not XML:\n"++)) id
-                           . xmlParse' fname'
-                           $ content
-          case runParser schema [docContent (posInNewCxt fname' Nothing) d] of
-            (Left msg, _) -> 
-              do
-                hPutStrLn stderr $ fname ++ ": " ++ msg
-                return Nothing
-            (Right v, []) ->
-              do
-                envs <- mapM convertFile $ mapMaybe fromInclude $ XSD.schema_items v
-                let env = foldl combineEnv emptyEnv $ catMaybes envs
-                    nenv = mkEnvironment mname v env
-                    decls = convert nenv v
-                    haskl = Haskell.mkModule ("Data.Avaya.Generated." ++ mname) v decls
-                    doc   = ppModule simpleNameConverter haskl
-                hPutStrLn o $ render doc
-                hFlush o
-                hPutStrLn stderr $ "Generated haskell file from " ++ fname
-                return $ Just nenv 
-             where
-              fromInclude (XSD.Include a _) = Just $ dname </> a
-              fromInclude _ = Nothing
-            (Right _, _)  ->
-              do
-                hPutStrLn stderr $ fname ++ ": parsing incomplete!"
-                return Nothing
-      else return Nothing
+          rqst <- simpleHTTP $ getRequest http
+          content <- getResponseBody rqst
+          convertFromContent content
   where
-    (dname, fname') = splitFileName fname
+    name' =
+      case addr of
+        XsdFile a -> a
+        XsdHttp a -> a
+
+    (dname, fname') = splitFileName name'
     (bname, ext) = splitExtension fname'
     mname = moduleName bname
+
+    toAddress (XSD.Include a _) =
+      case addr of
+        XsdFile _ -> Just $ XsdFile $ dname </> a
+        XsdHttp _ -> Just $ XsdHttp $ dname </> a
+    toAddress (XSD.Import _ a _) =
+       if dname' == "." 
+         then Just $ XsdHttp $ dname </> a
+         else Just $ XsdHttp a
+      where
+        dname' = takeDirectory a
+    toAddress _ = Nothing
+    
+    convertFromContent :: String -> IO (Maybe Environment)
+    convertFromContent content =
+      do
+        o <- openFile ("src/Data/Avaya/Generated/" ++ mname ++ ".hs") WriteMode
+        let d@Document{} = resolveAllNames qualify
+                         . either (error . ("not XML:\n"++)) id
+                         . xmlParse' name'
+                         $ content
+        case runParser schema [docContent (posInNewCxt name' Nothing) d] of
+          (Left msg, _) -> 
+            do
+              hPutStrLn stderr $ name' ++ ": " ++ msg
+              return Nothing
+          (Right v, []) ->
+            do
+              hPutStrLn stderr $ "Generating haskell code from " ++ name'
+              envs <- mapM convertFromAddress $ mapMaybe toAddress $ XSD.schema_items v
+              let env = foldl combineEnv emptyEnv $ catMaybes envs
+                  nenv = mkEnvironment mname v env
+                  decls = convert nenv v
+                  haskl = Haskell.mkModule ("Data.Avaya.Generated." ++ mname) v decls
+                  doc   = ppModule simpleNameConverter haskl
+              hPutStrLn o $ render doc
+              hPutStrLn stderr $ "Generated haskell code from " ++ name'
+              hFlush o
+              return $ Just nenv 
+            where
+          (Right _, _)  ->
+            do
+              hPutStrLn stderr $ name' ++ ": parsing incomplete!"
+              return Nothing
 
 main :: IO ()
 main =
   do
     names <- getArgs
-    mapM_ convertFile names
+    mapM_ convertFromAddress $ map XsdFile names
     
