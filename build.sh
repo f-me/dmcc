@@ -106,6 +106,8 @@ if [[ $FRESH_BUILD -eq 1 ]]; then
   fi
 fi
 
+rm -f src/Data/Avaya/Generated/*
+
 ./cabal-dev/bin/xsd2hs xsd/start-application-session.xsd xsd/stop-application-session.xsd xsd/reset-application-session-timer.xsd xsd/avaya-csta.xsd 
 cabal-dev configure
 cabal-dev build

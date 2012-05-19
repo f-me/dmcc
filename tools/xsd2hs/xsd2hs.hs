@@ -1,10 +1,10 @@
 module Main where
 
-import Control.Monad.State
 import Data.Char
 import Data.Maybe
-import System.Environment
+import Control.Monad.State
 import System.Directory
+import System.Environment
 import System.FilePath
 import System.IO
 
@@ -78,7 +78,7 @@ convertFromAddress addr =
 
     (dname, fname') = splitFileName name'
     (bname, ext) = splitExtension fname'
-    mname = moduleName bname
+    mname = fpml bname
 
     toAddress (XSD.Include a _) =
       case addr of
@@ -95,11 +95,14 @@ convertFromAddress addr =
     convertFromContent :: String -> StateT (M.Map String Environment) IO (Maybe Environment)
     convertFromContent content =
       do
-        map <- get
-        case M.lookup mname map of
+        mp <- get
+        case M.lookup mname mp of
+
           Just env -> return $ Just env
           Nothing -> do
-            o <- liftIO $ openFile ("src/Data/Avaya/Generated" </> mname ++ ".hs") WriteMode
+            let dmname = "src" </> (map (\a -> if a == '.' then '/' else a) mname) <.> "hs"
+            o <- liftIO $ createDirectoryIfMissing True $ takeDirectory dmname
+            o <- liftIO $ openFile dmname WriteMode
             let d@Document{} = resolveAllNames qualify
                              . either (error . ("not XML:\n"++)) id
                              . xmlParse' name'
@@ -115,8 +118,8 @@ convertFromAddress addr =
                   let env = foldl combineEnv emptyEnv $ catMaybes envs
                       nenv = mkEnvironment mname v env
                       decls = convert nenv v
-                      haskl = Haskell.mkModule ("Data.Avaya.Generated." ++ mname) v decls
-                      doc   = ppModule simpleNameConverter haskl
+                      haskl = Haskell.mkModule mname v decls
+                      doc   = ppModule fpmlNameConverter haskl
                   liftIO $ do
                     hPutStrLn o $ render doc
                     hClose o
