@@ -112,7 +112,7 @@ convertFromAddress addr =
                   doc   = ppModule simpleNameConverter haskl
               hPutStrLn o $ render doc
               hPutStrLn stderr $ "Generated haskell code from " ++ name'
-              hFlush o
+              hClose o
               return $ Just nenv 
             where
           (Right _, _)  ->
