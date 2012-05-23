@@ -38,20 +38,6 @@ xsdName str =
   where
     (hd, tl) = break (== '.') str
 
-moduleName :: String -> String
-moduleName str =
-    loop str True
-  where
-    upper :: Bool -> Char -> Char
-    upper True = toUpper
-    upper False = id
-
-    loop "" _ = ""
-    loop (x:xs) b =
-      if (x == '-')
-        then loop xs True
-        else (upper b x):(loop xs False)
-
 maybeSum :: (a -> b -> b) -> (Maybe a) -> (Maybe b) -> (Maybe b)
 maybeSum f ma = maybe Nothing (\b -> Just $ maybe b (\a -> f a b) ma)
 
@@ -78,7 +64,7 @@ convertFromAddress addr =
 
     (dname, fname') = splitFileName name'
     (bname, ext) = splitExtension fname'
-    mname = fpml bname
+    mname = drop 1 . snd . break (== '.') . fpml $ bname
 
     toAddress (XSD.Include a _) =
       case addr of
@@ -100,8 +86,9 @@ convertFromAddress addr =
 
           Just env -> return $ Just env
           Nothing -> do
-            let dmname = "src" </> (map (\a -> if a == '.' then '/' else a) mname) <.> "hs"
-            o <- liftIO $ createDirectoryIfMissing True $ takeDirectory dmname
+            liftIO $ print $ "Start " ++ mname 
+            let dmname = "src" </> "Data" </> (map (\a -> if a == '.' then '/' else a) mname) <.> "hs"
+            liftIO $ createDirectoryIfMissing True $ takeDirectory dmname
             o <- liftIO $ openFile dmname WriteMode
             let d@Document{} = resolveAllNames qualify
                              . either (error . ("not XML:\n"++)) id
@@ -123,6 +110,7 @@ convertFromAddress addr =
                   liftIO $ do
                     hPutStrLn o $ render doc
                     hClose o
+                  liftIO $ print $ "Stop " ++ mname 
                   modify $ M.insert mname nenv
                   return $ Just nenv 
                 where

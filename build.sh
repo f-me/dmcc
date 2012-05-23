@@ -3,9 +3,23 @@
 AVAYA_AES_DIR=`pwd`
 DEPS_DIR=$AVAYA_AES_DIR/deps
 REPOS=("git@github.com:/Elemir/HaXml.git")
-APPL_SESSION_XSD=("stop-application-session.xsd" 
+APPL_SESSION_XSD=("stop-application-session.xsd"
                   "start-application-session.xsd"
                   "reset-application-session-timer.xsd")
+XSD=("./xsd/stop-application-session.xsd"
+     "./xsd/start-application-session.xsd"
+     "./xsd/reset-application-session-timer.xsd"
+     "./xsd/monitor-start.xsd"
+     "./xsd/monitor-stop.xsd"
+     "./xsd/hookswitch-event.xsd"
+     "./xsd/lamp-mode-event.xsd"
+     "./xsd/ringer-status-event.xsd"
+     "./xsd/display-updated-event.xsd"
+     "./xsd/get-device.xsd"
+     "./xsd/register-terminal.xsd"
+     "./xsd/set-hookswitch-status.xsd"
+     "./xsd/button-press.xsd"
+     "./xsd/release-device.xsd")
 [ $# -eq 0 ] && echo "usage: $0 <cmapixml-sdk path>" 2>/dev/null && exit 1
 
 if [[ ! -d "cmapixml-sdk" ]]; then
@@ -108,7 +122,7 @@ fi
 
 rm -f src/Data/Avaya/Generated/*
 
-./cabal-dev/bin/xsd2hs xsd/start-application-session.xsd xsd/stop-application-session.xsd xsd/reset-application-session-timer.xsd xsd/avaya-csta.xsd 
+./cabal-dev/bin/xsd2hs "${XSD[@]}"
 cabal-dev configure
 cabal-dev build
 cabal-dev install
