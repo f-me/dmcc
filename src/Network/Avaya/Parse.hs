@@ -12,8 +12,6 @@ import           Data.ByteString.Lex.Integral (packDecimal, readDecimal_)
 import           Text.XML
 import           Text.XML.Cursor
 
---import           Network.Avaya.Events
-import           Network.Avaya.Types
 ------------------------------------------------------------------------------
 -- Parse header.
 -- | All XML messages must have prepended the appropriate eight byte
@@ -42,45 +40,6 @@ getHeader = do
     invokeId <- readDecimal_ <$> getByteString 4
     return $ CstaHeader version (length - 8) invokeId
 
-------------------------------------------------------------------------------
-parseEvent :: B.ByteString -> Event
-parseEvent = event . parseResponse
-
-
-event :: Document -> Event
-event doc = Event { eventMonitor = el doc "monitorCrossRefID"
-                  , eventDevice  = el doc "device"
-                  , eventType    = parseEventType doc
-                  }
-
-
-parseEventType :: Document -> EventType
-parseEventType doc =
-    case nameLocalName (elementName $ documentRoot doc) of
-      "HookswitchEvent"     ->
-          Hookswitch { hookswitchId = el doc "hookswitch"
-                     , hookswitchOnHook = parseBoolean $ el doc "hookswitchOnHook"
-                     }
-        where
-      "LampModeEvent"       -> LampMode
-      "RingerStatusEvent"   -> RingerStatus
-      "DisplayUpdatedEvent" -> DisplayUpdated
-      _                     -> error "parseEventType: no such event type"
-
-
-parseBoolean b =
-    case b of
-      "true"  -> True
-      "1"     -> True
-      "false" -> False
-      "0"     -> False
-      other   -> error "parseBoolean: not boolean"
-
-
-isHookswitch res = is res "HookswitchEvent"
-isLampMode res = is res "LampModeEvent"
-
-is res str = bool $ fromDocument (parseResponse res) $| laxElement str
 ------------------------------------------------------------------------------
 -- Parse message.
 parseResponse :: B.ByteString -> Document

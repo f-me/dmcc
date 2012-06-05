@@ -15,25 +15,29 @@ Library
   Hs-source-dirs: src
   Exposed-modules:
     Network.Avaya
+    Network.Avaya.Action
 
   Other-modules:
     Network.Avaya.Messages
     Network.Avaya.Parse
-    Network.Avaya.Types
+    Network.Avaya.Internal
 
   ghc-options: -Wall -fno-warn-unused-do-bind
 
   Build-depends:
-    base                == 4.*,
-    binary              == 0.5.*,
-    bytestring          == 0.9.*,
-    bytestring-lexing   == 0.4.*,
-    mtl                 == 2.0.*,
-    network             == 2.3.*,
-    stm                 == 2.3.*,
-    text                == 0.11.*,
-    xml-conduit         == 0.7.*,
-    xml-hamlet          == 0.3.*
+    base                 == 4.*,
+    binary               == 0.5.*,
+    bytestring           == 0.9.*,
+    bytestring-lexing    == 0.4.*,
+    comonad-transformers == 2.1.1,
+    data-lens-template   >= 2.1 && < 2.2,
+    data-lens            >= 2.10 && < 2.11,
+    mtl                  == 2.0.*,
+    network              == 2.3.*,
+    stm                  == 2.3.*,
+    text                 == 0.11.*,
+    xml-conduit          == 0.7.*,
+    xml-hamlet           == 0.3.*
 
 source-repository head
   type:     git

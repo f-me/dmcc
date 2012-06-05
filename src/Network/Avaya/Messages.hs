@@ -9,8 +9,7 @@ import qualified Data.Text as T
 import           Text.Hamlet.XML
 import           Text.XML
 
-import           Network.Avaya.Types
-
+import Network.Avaya.Internal
 
 d :: Name -> T.Text -> [Node] -> B.ByteString
 d name namespace ns = renderLBS def $ Document (Prologue [] Nothing []) root []
@@ -30,8 +29,8 @@ getProtocolString ver =
       _     -> error "getProtocolString: no such version"
 
 
-startAppSessionMessage :: Conf -> B.ByteString
-startAppSessionMessage Conf { cUser = username, cUserPassword = password, cDelay = delay, cVersion = version, cDuration = duration } =
+startAppSessionMessage :: AvayaConfig-> B.ByteString
+startAppSessionMessage AvayaConfig{ cUser = username, cUserPassword = password, cDelay = delay, cVersion = version, cDuration = duration } =
     d "StartApplicationSession" "http://www.ecma-international.org/standards/ecma-354/appl_session" [xml|
 <applicationInfo>
     <applicationID>TestApp
@@ -54,8 +53,8 @@ resetApplicationSessionTimer sessionId =
 |]
 
 
-getDeviceIdMessage :: Conf -> B.ByteString
-getDeviceIdMessage Conf { cCallServerIp = ip, cExtension = extension } =
+getDeviceIdMessage :: AvayaConfig-> B.ByteString
+getDeviceIdMessage AvayaConfig{ cCallServerIp = ip, cExtension = extension } =
     d "GetDeviceId" "http://www.avaya.com/csta" [xml|
 <switchName>#{ip}
 <extension>#{extension}
@@ -80,7 +79,7 @@ monitorStartMessage protocol deviceId =
                 <invertFilter>true
 |]
 
-registerTerminalRequestMessage (Conf { cPassword = password }) deviceId =
+registerTerminalRequestMessage (AvayaConfig{ cPassword = password }) deviceId =
     d "RegisterTerminalRequest" "http://www.avaya.com/csta" [xml|
 <device typeOfNumber="other" mediaClass="notKnown">#{deviceId}
 <loginInfo>
