@@ -5,6 +5,7 @@ module Network.Avaya
     , AvayaState
     , startAvaya
     , runAvayaAction
+    , runAvayaActionWithLens
     , cleanup
     ) where
 import           Control.Arrow

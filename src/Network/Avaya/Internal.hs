@@ -96,6 +96,21 @@ runAvayaAction (AS (conf, session)) action
         runStateT (runReaderT (runErrorT action) conf) session
 
 
+runAvayaActionWithLens :: (MonadIO m, MonadState app m) =>
+                            Lens app (Maybe AvayaState) -> Avaya a
+                         -> m (Either AvayaException a)
+runAvayaActionWithLens lens action
+    = do
+        app <- get
+        est <- liftIO $ runAvayaAction (fromJust $ getL lens app) action
+        case est of
+            Left excpt ->
+                return $ Left excpt
+            Right (avst, a) -> do
+                put $ setL lens (Just avst) app
+                return $ Right a
+
+
 avayaRead :: Avaya B.ByteString
 avayaRead = do
   c <- maccess sIn
