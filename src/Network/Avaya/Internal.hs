@@ -166,13 +166,11 @@ access :: (Functor m, MonadState s m) => Lens s b -> m b
 access (Lens f) = gets (pos . f)
 {-# INLINE access #-}
 
-maccess :: (Functor m, Error e,
-           MonadError e m, MonadState s m) => Lens s (Maybe b) -> m b
+maccess :: (Functor m, MonadState s m) => Lens s (Maybe b) -> m b
 maccess lns
-    = (liftM2 fromMaybe)
-        (throwError . strMsg
-            $ "Trying to access unsetted field")
-        (access lns)
+    = fromMaybe
+        (error $ "Trying to access unsetted field")
+        <$> access lns
 {-# INLINE maccess #-}
 
 infixr 4 ~=
