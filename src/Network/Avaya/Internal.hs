@@ -18,12 +18,12 @@ import           System.IO
 import           Control.Concurrent.STM
 import           Data.Binary.Get
 import           Data.Binary.Put
-import           Data.ByteString.Lex.Integral (packDecimal, readDecimal_)
 import           Data.Lens.Template
 import           Data.Lens.Common
 
 import qualified Data.ByteString.Lazy.Char8 as B
 import qualified Data.Text as T
+import           Text.Printf
 
 import           Network.Avaya.Parse
 
@@ -141,23 +141,8 @@ loopWrite h ch idx = do
     B.hPut h (runPut $ putHeader mess (packInvokeId idx))
     loopWrite h ch (nextIdx idx)
   where
-    nextIdx i = if i < 9998 then i + 1 else 0
-    packInvokeId i = addNulls $ B.fromChunks [ fromJust $ packDecimal i ]
-    addNulls x = B.replicate (4 - B.length x) '0' `B.append` x
-
-
-nextInvokeId :: Avaya B.ByteString
-nextInvokeId = do
-    sInvokeId %= increase
-    packInvokeId <$> access sInvokeId
-  where
-    increase i = if i < 9998
-                   then i + 1
-                   else 0
-
-    packInvokeId i = addNulls $ B.fromChunks [ fromJust $ packDecimal i ]
-
-    addNulls x = B.replicate (4 - B.length x) '0' `B.append` x
+    nextIdx = mod 9999 . (+1)
+    packInvokeId = B.pack . printf "%04d"
 
 
 -- More logical reimplementation of Data.Lens.Lazy

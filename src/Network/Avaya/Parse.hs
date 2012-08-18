@@ -6,9 +6,9 @@ import           Control.Applicative
 import           Data.Binary.Get
 import           Data.Binary.Put
 import qualified Data.ByteString.Lazy.Char8 as B
+import qualified Data.ByteString.Char8 as BS
 import           Data.Word
 
-import           Data.ByteString.Lex.Integral (packDecimal, readDecimal_)
 import           Text.XML
 import           Text.XML.Cursor
 
@@ -39,6 +39,10 @@ getHeader = do
     length   <- fromIntegral <$> getWord16be
     invokeId <- readDecimal_ <$> getByteString 4
     return $ CstaHeader version (length - 8) invokeId
+
+readDecimal_ s = case BS.readInt s of
+  Just (n,"") -> n
+  _ -> error $ "can't parse " ++ show s ++ " as decimal"
 
 ------------------------------------------------------------------------------
 -- Parse message.

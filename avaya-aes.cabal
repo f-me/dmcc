@@ -28,7 +28,6 @@ Library
     base                 == 4.*,
     binary               == 0.5.*,
     bytestring           == 0.9.*,
-    bytestring-lexing    == 0.4.*,
     comonad-transformers == 2.1.1,
     data-lens-template   >= 2.1 && < 2.2,
     data-lens            >= 2.10 && < 2.11,
