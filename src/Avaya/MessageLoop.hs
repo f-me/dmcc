@@ -21,7 +21,8 @@ import qualified Data.IntMap as Map
 import System.IO
 import Network
 
-import Avaya.Messages
+import Avaya.Messages.Request (Request)
+import Avaya.Messages.Response (Response)
 import qualified Avaya.Messages.Raw as Raw
 
 
@@ -54,9 +55,9 @@ data LoopEvent
 data AvayaError = AvayaError
 
 --FIXME: handle network errors
-startMessageLoop :: String -> PortNumber -> IO (Either AvayaError LoopHandle)
+startMessageLoop :: String -> Int -> IO (Either AvayaError LoopHandle)
 startMessageLoop host port = withSocketsDo $ do
-  sock <- connectTo host (PortNumber $ port)
+  sock <- connectTo host (PortNumber $ fromIntegral port)
   hSetBuffering sock NoBuffering
 
   msgChan <- newTChanIO
@@ -118,4 +119,13 @@ sendRequestSync h rq = do
   -- FIXME: handle error
   Raw.sendRequest (socket h) ix rq
   atomically $ takeTMVar var
+
+sendRequestAsync :: LoopHandle -> Request -> IO ()
+sendRequestAsync h rq = do
+  ix <- atomically $ do
+    modifyTVar' (invokeId h) ((`mod` 9999).(+1))
+    readTVar (invokeId h)
+  -- FIXME: handle error
+  Raw.sendRequest (socket h) ix rq
+
 

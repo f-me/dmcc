@@ -39,8 +39,8 @@ Executable avaya-test
 Library
   Hs-source-dirs: src
   Exposed-modules:
+    Avaya.DeviceMonitoring
     Avaya.MessageLoop
-    Avaya.Messages
     Avaya.Messages.Request
     Avaya.Messages.Response
 

@@ -1,24 +1,15 @@
 
 
+import Control.Monad
+import Control.Concurrent
+
 import Avaya.MessageLoop
-import Avaya.Messages.Request
+import Avaya.DeviceMonitoring
 
+main :: IO ()
 main = do
-  Right h <- startMessageLoop "127.0.0.1" $ fromIntegral (1234 :: Int)
+  Right h <- startMessageLoop "127.0.0.1" 4721
   attachObserver h print
-  rsp <- sendRequestSync h $ 
-    StartApplicationSession
-    {applicationId = "Test"
-    ,requestedProtocolVersion = V5_2
-    ,userName = "user"
-    ,password = "pass"
-    ,sessionCleanupDelay = 180
-    ,requestedSessionDuration = 180
-    }
-  print rsp
-
-{-
-  connect
-  attach observer
-  start session
- -}
+  startDeviceMonitoring h
+    "user" "pass" "S8300ADAC" "125" "1234567"
+  forever $ threadDelay 100
