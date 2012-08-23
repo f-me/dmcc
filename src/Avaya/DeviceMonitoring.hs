@@ -24,7 +24,7 @@ startDeviceMonitoring h user pass switch ext pwd = do
       }
 
   forkIO $ forever $ do
-    threadDelay $ actualSessionDuration * 300
+    threadDelay $ actualSessionDuration * 300 * 1000
     sendRequestAsync h
       $ Rq.ResetApplicationSessionTimer
         {sessionId = sessionID
