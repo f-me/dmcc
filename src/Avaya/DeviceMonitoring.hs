@@ -1,6 +1,9 @@
 
 module Avaya.DeviceMonitoring where
 
+import Control.Monad
+import Control.Concurrent
+
 import Avaya.MessageLoop
 import qualified Avaya.Messages.Request as Rq
 import qualified Avaya.Messages.Response as Rs
@@ -19,6 +22,15 @@ startDeviceMonitoring h user pass switch ext pwd = do
       ,sessionCleanupDelay = 180
       ,requestedSessionDuration = 180
       }
+
+  forkIO $ forever $ do
+    threadDelay $ actualSessionDuration * 300
+    sendRequestAsync h
+      $ Rq.ResetApplicationSessionTimer
+        {sessionId = sessionID
+        ,requestedSessionDuration = actualSessionDuration
+        }
+
   Rs.GetDeviceIdResponse{..} <- sendRequestSync h
     $ Rq.GetDeviceId
       {switchName = switch

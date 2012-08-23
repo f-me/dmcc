@@ -12,4 +12,4 @@ main = do
   attachObserver h print
   startDeviceMonitoring h
     "user" "pass" "S8300ADAC" "125" "1234567"
-  forever $ threadDelay 100
+  forever $ threadDelay 1000

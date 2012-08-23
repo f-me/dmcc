@@ -8,6 +8,7 @@ module Avaya.MessageLoop
   ,shutdownLoop
   ,attachObserver
   ,sendRequestSync
+  ,sendRequestAsync
   )where
 
 
