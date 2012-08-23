@@ -49,6 +49,7 @@ data LoopEvent
   | Timeout
   | ReadError
   | ShutdownRequested
+  deriving Show
 
 data AvayaError = AvayaError
 
