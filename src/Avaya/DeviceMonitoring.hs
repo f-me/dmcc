@@ -13,7 +13,7 @@ startDeviceMonitoring h user pass switch ext pwd = do
   Rs.StartApplicationSessionPosResponse{..} <- sendRequestSync h
     $ Rq.StartApplicationSession
       {applicationId = "Test"
-      ,requestedProtocolVersion = Rq.V5_2
+      ,requestedProtocolVersion = Rq.V4_2
       ,userName = user
       ,password = pass
       ,sessionCleanupDelay = 180
