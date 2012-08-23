@@ -39,7 +39,7 @@ readResponse h = do
   case res of
     Left err -> fail $ "Header: " ++ show (err :: SomeException)
     Right (len,invokeId) -> do
-      resp <- fromXml <$> S.hGet h len
+      resp <- fromXml <$> S.hGet h (len - 8)
       return (resp,invokeId)
   where
     readHeader = do
