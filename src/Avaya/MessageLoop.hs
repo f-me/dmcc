@@ -7,16 +7,16 @@ module Avaya.MessageLoop
   ,startMessageLoop
   ,shutdownLoop
   ,attachObserver
-  ,sendRequest
+  ,sendRequestSync
   )where
 
 
+import Control.Arrow
 import Control.Monad
-import Control.Monad.Trans
 import Control.Concurrent
 import Control.Concurrent.STM
-import qualified Data.ByteString.Char8 as S
-import qualified Data.ByteString.Lazy  as L
+
+import qualified Data.IntMap as Map
 
 import System.IO
 import Network
@@ -27,10 +27,10 @@ import qualified Avaya.Messages.Raw as Raw
 
 data LoopHandle = LoopHandle
   {socket :: Handle
-  ,msgChan :: TChan LoopEvent
   ,readThread :: ThreadId
   ,procThread :: ThreadId
   ,observers  :: TVar [Observer]
+  ,waitingRequests  :: TVar (Map.IntMap (TMVar Response))
   ,deviceState :: TVar DeviceState
   ,invokeId :: TVar Int
   }
@@ -61,22 +61,31 @@ startMessageLoop host port = withSocketsDo $ do
   msgChan <- newTChanIO
   readThread <- forkIO $ forever
       $ Raw.readResponse sock
-      >>= atomically . writeTChan msgChan . AvayaRsp
+      >>= atomically . writeTChan msgChan . first AvayaRsp
 
   observers <- newTVarIO []
+  waitingRequests <- newTVarIO Map.empty
   deviceState <- newTVarIO defaultDeviceState
   invokeId <- newTVarIO 0
 
   procThread <- forkIO $ forever $ do
-      msg <- atomically $ readTChan msgChan
+      (msg,invokeId) <- atomically $ readTChan msgChan
       atomically $ modifyTVar' deviceState (updateDevice msg)
-      obs <- atomically $ readTVar observers
+      obs <- readTVarIO observers
       mapM_ (forkIO . ($msg)) obs
+      case msg of
+        AvayaRsp rsp -> do
+          syncs <- readTVarIO waitingRequests
+          case Map.lookup invokeId syncs of
+            Nothing -> return ()
+            Just sync -> void $ atomically $ tryPutTMVar sync rsp
+        _ -> return ()
 
   let h = LoopHandle
-        sock msgChan
+        sock
         readThread procThread
-        observers deviceState invokeId
+        observers waitingRequests
+        deviceState invokeId
 
   return $ Right h
 
@@ -97,11 +106,15 @@ attachObserver :: LoopHandle -> Observer -> IO ()
 attachObserver h o = atomically $ modifyTVar' (observers h) (o:)
 
 
-sendRequest :: LoopHandle -> Request -> IO ()
-sendRequest h rq = do
-  ix <- atomically $ do
+sendRequestSync :: LoopHandle -> Request -> IO Response
+sendRequestSync h rq = do
+  (ix,var) <- atomically $ do
     modifyTVar' (invokeId h) ((`mod` 9999).(+1))
-    readTVar (invokeId h)
+    ix <- readTVar (invokeId h)
+    var <- newEmptyTMVar
+    modifyTVar' (waitingRequests h) (Map.insert ix var)
+    return (ix,var)
   -- FIXME: handle error
   Raw.sendRequest (socket h) ix rq
+  atomically $ takeTMVar var
 

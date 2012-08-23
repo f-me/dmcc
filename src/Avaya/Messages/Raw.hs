@@ -26,24 +26,26 @@ sendRequest h ix rq
   = L.hPut h $ runPut $ do
     putWord16be 0
     let rawRequest = toXml rq
-    putWord16be . fromIntegral $ 8 + S.length rawRequest
+    putWord16be . fromIntegral $ 8 + L.length rawRequest
     let invokeId = S.pack . take 4 $ printf "%04d" ix
     putByteString invokeId
-    putByteString rawRequest
+    putLazyByteString rawRequest
 
 
 -- FIXME: error
-readResponse :: Handle -> IO Response
+readResponse :: Handle -> IO (Response, Int)
 readResponse h = do
-  dataLen <- try $ runGet readHeader <$> L.hGet h 8
-  case dataLen of
-    Left err -> return $! MalformedResponse $! "Header: " ++ show (err :: SomeException)
-    Right len -> fromXml <$> S.hGet h len
+  res <- try $ runGet readHeader <$> L.hGet h 8
+  case res of
+    Left err -> fail $ "Header: " ++ show (err :: SomeException)
+    Right (len,invokeId) -> do
+      resp <- fromXml <$> S.hGet h len
+      return (resp,invokeId)
   where
     readHeader = do
       skip 2 -- version
       len <- fromIntegral <$> getWord16be
       ix  <- getByteString 4
       case S.readInt ix of
-        Just (9999,"") -> return len
+        Just (invokeId,"") -> return (len,invokeId)
         _ -> fail $ "Invalid InvokeID: " ++ show ix
