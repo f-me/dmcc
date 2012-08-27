@@ -105,10 +105,53 @@ toXml rq = renderLBS def $ case rq of
   MonitorStart{..}
     -> doc "MonitorStart" acceptedProtocol [xml|
       <monitorObject>
-          <deviceObject
-              typeOfNumber="other"
-              mediaClass="notKnown">
-            #{deviceObject}
+        <deviceObject typeOfNumber="other" mediaClass="notKnown">#{deviceObject}
+      <requestedMonitorFilter>
+        <callcontrol>
+          <bridged>true</bridged>
+          <callCleared>true</callCleared>
+          <conferenced>true</conferenced>
+          <connectionCleared>true</connectionCleared>
+          <delivered>true</delivered>
+          <digitsDialed>true</digitsDialed>
+          <diverted>true</diverted>
+          <established>true</established>
+          <failed>true</failed>
+          <held>true</held>
+          <offered>true</offered>
+          <originated>true</originated>
+          <queued>true</queued>
+          <retrieved>true</retrieved>
+          <serviceInitiated>true</serviceInitiated>
+          <transferred>true</transferred>
+        <physicalDeviceFeature>
+          <buttonInformation>true</buttonInformation>
+          <buttonPress>true</buttonPress>
+          <displayUpdated>true</displayUpdated>
+          <hookswitch>true</hookswitch>
+          <microphoneGain>true</microphoneGain>
+          <microphoneMute>true</microphoneMute>
+          <ringerStatus>true</ringerStatus>
+        <logicalDeviceFeature>
+          <agentBusy>true</agentBusy>
+          <agentLoggedOn>true</agentLoggedOn>
+          <agentLoggedOff>true</agentLoggedOff>
+          <agentNotReady>true</agentNotReady>
+          <agentReady>true</agentReady>
+          <agentWorkingAfterCall>true</agentWorkingAfterCall>
+          <autoAnswer>true</autoAnswer>
+          <autoWorkMode>true</autoWorkMode>
+          <callBack>true</callBack>
+          <callBackMessage>true</callBackMessage>
+          <callerIDStatus>true</callerIDStatus>
+          <doNotDisturb>true</doNotDisturb>
+          <forwarding>true</forwarding>
+          <routeingMode>true</routeingMode>
+      <extensions>
+        <privateData>
+          <private>
+            <AvayaEvents>
+              <invertFilter>true
       |]
 
   RegisterTerminalRequest{..}
