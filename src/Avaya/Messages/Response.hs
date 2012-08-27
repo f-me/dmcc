@@ -24,7 +24,27 @@ data Response
     {device :: Text
     }
   | MonitorStartResponse
-  | RegisterTerminalResponse
+  | RegisterTerminalResponse -- FIXME: Positive vs Negative
+  | RingerStatusEvent
+    {monitorCrossRefID :: Text
+    ,deviceIdentifier :: Text
+    ,ringer :: Text
+    ,ringMode :: Text
+    ,ringPattern :: Text
+    }
+  | HookswitchEvent
+    {monitorCrossRefID :: Text
+    ,deviceIdentifier :: Text
+    ,hookswitch :: Text
+    ,hookswitchOnHook :: Text
+    }
+  | DisplayUpdatedEvent
+    {monitorCrossRefID :: Text
+    ,deviceIdentifier :: Text
+    ,logicalRows :: Int
+    ,logicalColumns :: Int
+    ,contentsOfDisplay :: Text
+    }
   deriving Show
 
 fromXml :: ByteString -> Response
@@ -47,7 +67,30 @@ fromXml xml
 
         "MonitorStartResponse" -> MonitorStartResponse
         "RegisterTerminalResponse" -> RegisterTerminalResponse
+        "RingerStatusEvent"
+          -> RingerStatusEvent
+            {monitorCrossRefID = text cur "monitorCrossRefID"
+            ,deviceIdentifier = text cur "deviceIdentifier"
+            ,ringer = text cur "ringer"
+            ,ringMode = text cur "ringMode"
+            ,ringPattern = text cur "ringPattern"
+            }
 
+        "HookswitchEvent"
+          -> HookswitchEvent
+            {monitorCrossRefID = text cur "monitorCrossRefID"
+            ,deviceIdentifier = text cur "deviceIdentifier"
+            ,hookswitch = text cur "hookswitch"
+            ,hookswitchOnHook = text cur "hookswitchOnHook"
+            }
+        "DisplayUpdatedEvent"
+          -> DisplayUpdatedEvent
+            {monitorCrossRefID = text cur "monitorCrossRefID"
+            ,deviceIdentifier = text cur "deviceIdentifier"
+            ,logicalRows = decimal cur "logicalRows"
+            ,logicalColumns = decimal cur "logicalColumns"
+            ,contentsOfDisplay = text cur "contentsOfDisplay"
+            }
         _ -> UnknownResponse xml
 
 text c n = T.concat $ c $// laxElement n &/content
