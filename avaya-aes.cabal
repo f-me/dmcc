@@ -32,8 +32,8 @@ Executable avaya-test
     network              == 2.3.*,
     stm                  == 2.3.*,
     text                 == 0.11.*,
-    xml-conduit          == 1.0.*,
-    xml-hamlet           == 0.4.*
+    xml-conduit          == 0.7.*,
+    xml-hamlet           == 0.3.*
 
 
 Library
@@ -63,8 +63,8 @@ Library
     network              == 2.3.*,
     stm                  == 2.3.*,
     text                 == 0.11.*,
-    xml-conduit          == 1.0.*,
-    xml-hamlet           == 0.4.*
+    xml-conduit          == 0.7.*,
+    xml-hamlet           == 0.3.*
 
 source-repository head
   type:     git

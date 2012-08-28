@@ -73,7 +73,7 @@ doc name xmlns nodes = Document
   (Prologue [] Nothing [])
   (Element
     name
-    (Map.fromList
+    (--Map.fromList
       [("xmlns",xmlns),("xmlns:xsi",nsXSI),("xmlns:csta",nsCSTA)])
     nodes)
   []
