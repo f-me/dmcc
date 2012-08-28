@@ -45,6 +45,11 @@ data Response
     ,logicalColumns :: Int
     ,contentsOfDisplay :: Text
     }
+  | RegisterTerminalResponse
+    {deviceIdentifier :: Text
+    ,code :: Int
+    -- reason :: Maybe Text
+    }
   deriving Show
 
 fromXml :: ByteString -> Response
@@ -66,7 +71,13 @@ fromXml xml
             }
 
         "MonitorStartResponse" -> MonitorStartResponse
-        "RegisterTerminalResponse" -> RegisterTerminalResponse
+
+        "RegisterTerminalResponse"
+          -> RegisterTerminalResponse
+            {deviceIdentifier = text cur "deviceIdentifier"
+            ,code = decimal cur "code"
+            }
+
         "RingerStatusEvent"
           -> RingerStatusEvent
             {monitorCrossRefID = text cur "monitorCrossRefID"

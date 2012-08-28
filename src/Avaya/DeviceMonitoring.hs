@@ -8,10 +8,10 @@ import Avaya.MessageLoop
 import qualified Avaya.Messages.Request as Rq
 import qualified Avaya.Messages.Response as Rs
 
--- TODO: monitoring handler
---       reset timeout thread
---       stop monitoring
--- startDeviceMonitoring :: LoopHandle -> Text -> Text -> IO ()
+startDeviceMonitoring
+  :: LoopHandle
+  -> Text -> Text -> Text -> Text -> Text
+  -> IO (Either Int ())
 startDeviceMonitoring h user pass switch ext pwd = do
   Rs.StartApplicationSessionPosResponse{..} <- sendRequestSync h
     $ Rq.StartApplicationSession
@@ -23,14 +23,6 @@ startDeviceMonitoring h user pass switch ext pwd = do
       ,requestedSessionDuration = 180
       }
 
-  forkIO $ forever $ do
-    threadDelay $ actualSessionDuration * 300 * 1000
-    sendRequestAsync h
-      $ Rq.ResetApplicationSessionTimer
-        {sessionId = sessionID
-        ,requestedSessionDuration = actualSessionDuration
-        }
-
   Rs.GetDeviceIdResponse{..} <- sendRequestSync h
     $ Rq.GetDeviceId
       {switchName = switch
@@ -41,8 +33,21 @@ startDeviceMonitoring h user pass switch ext pwd = do
       {acceptedProtocol = actualProtocolVersion
       ,deviceObject = device
       }
-  sendRequestSync h
+  Rs.RegisterTerminalResponse{..} <- sendRequestSync h
     $ Rq.RegisterTerminalRequest
       {device = device
       ,password = pwd
       }
+  case code of
+    1 -> do
+      forkIO $ forever $ do
+        threadDelay $ actualSessionDuration * 300 * 1000
+        sendRequestAsync h
+          $ Rq.ResetApplicationSessionTimer
+            {sessionId = sessionID
+            ,requestedSessionDuration = actualSessionDuration
+            }
+      return $ Right ()
+    _ -> do
+      -- FIXME: session cleanup
+      return $ Left code 
