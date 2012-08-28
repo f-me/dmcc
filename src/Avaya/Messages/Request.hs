@@ -36,6 +36,11 @@ data Request
     {device :: Text
     ,password :: Text
     }
+  | SetHookswitchStatus
+    {acceptedProtocol :: Text
+    ,device :: Text
+    ,hookswitchOnhook :: Bool
+    }
   deriving Show
 
 data ProtocolVersion
@@ -163,4 +168,11 @@ toXml rq = renderLBS def $ case rq of
           <password>#{password}
           <mediaMode>NONE
           <dependencyMode>DEPENDENT
+      |]
+  SetHookswitchStatus{..}
+    -> let hook = if hookswitchOnhook then "true" else "false" 
+    in doc "SetHookswitchStatus" acceptedProtocol [xml|
+      <device typeOfNumber="other" mediaClass="notKnown">#{device}
+      <hookswitch>0000
+      <hookswitchOnhook>#{hook}
       |]

@@ -24,7 +24,11 @@ data Response
     {device :: Text
     }
   | MonitorStartResponse
-  | RegisterTerminalResponse -- FIXME: Positive vs Negative
+  | RegisterTerminalResponse
+    {deviceIdentifier :: Text
+    ,code :: Int
+    -- reason :: Maybe Text
+    }
   | RingerStatusEvent
     {monitorCrossRefID :: Text
     ,deviceIdentifier :: Text
@@ -44,11 +48,6 @@ data Response
     ,logicalRows :: Int
     ,logicalColumns :: Int
     ,contentsOfDisplay :: Text
-    }
-  | RegisterTerminalResponse
-    {deviceIdentifier :: Text
-    ,code :: Int
-    -- reason :: Maybe Text
     }
   deriving Show
 
