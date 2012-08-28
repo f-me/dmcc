@@ -45,6 +45,7 @@ Library
     Avaya.Messages.Response
 
   Other-modules:
+    Avaya.Messages.Raw
 
   ghc-options: -Wall -fno-warn-unused-do-bind
 
