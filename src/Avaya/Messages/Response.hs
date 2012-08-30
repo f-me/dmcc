@@ -24,6 +24,8 @@ data Response
     {device :: Text
     }
   | MonitorStartResponse
+    {monitorCrossRefID :: Text
+    }
   | RegisterTerminalResponse
     {deviceIdentifier :: Text
     ,code :: Int
@@ -69,7 +71,10 @@ fromXml xml
             {device = text cur "device"
             }
 
-        "MonitorStartResponse" -> MonitorStartResponse
+        "MonitorStartResponse"
+          -> MonitorStartResponse
+            {monitorCrossRefID = text cur "monitorCrossRefID"
+            }
 
         "RegisterTerminalResponse"
           -> RegisterTerminalResponse

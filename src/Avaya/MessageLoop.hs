@@ -97,12 +97,12 @@ updateDevice :: LoopEvent -> DeviceState -> DeviceState
 updateDevice e = id
 
 shutdownLoop :: LoopHandle -> IO ()
-shutdownLoop h = do
+shutdownLoop (LoopHandle{..}) = do
   -- syncronyously push ShutdownRequested to all observers
-  readTVarIO (observers h) >>= mapM_ ($ShutdownRequested)
-  killThread $ readThread h
-  killThread $ procThread h
-  hClose $ socket h
+  readTVarIO observers >>= mapM_ ($ShutdownRequested)
+  killThread procThread
+  killThread readThread
+  hClose socket
 
 
 attachObserver :: LoopHandle -> Observer -> IO ()

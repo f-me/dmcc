@@ -20,6 +20,9 @@ data Request
     ,sessionCleanupDelay :: Int
     ,requestedSessionDuration :: Int
     }
+  | StopApplicationSession
+    {sessionID :: Text
+    }
   | ResetApplicationSessionTimer
     {sessionId :: Text
     ,requestedSessionDuration :: Int
@@ -28,13 +31,23 @@ data Request
     {switchName :: Text
     ,extension :: Text
     }
+  | ReleaseDeviceId
+    {device :: Text
+    }
   | MonitorStart
     {acceptedProtocol :: Text
     ,deviceObject :: Text
     }
+  | MonitorStop
+    {acceptedProtocol :: Text
+    ,monitorCrossRefID :: Text
+    }
   | RegisterTerminalRequest
     {device :: Text
     ,password :: Text
+    }
+  | UnregisterTerminalRequest
+    {device :: Text
     }
   | SetHookswitchStatus
     {acceptedProtocol :: Text
@@ -95,6 +108,13 @@ toXml rq = renderLBS def $ case rq of
       <requestedSessionDuration>#{T.pack $ show requestedSessionDuration}
       |]
 
+  StopApplicationSession{..}
+    -> doc "StopApplicationSession" nsAppSession [xml|
+      <sessionID>#{sessionID}
+      <sessionEndReason>
+        <definedEndReason>normal
+      |]
+
   ResetApplicationSessionTimer{..}
     -> doc "ResetApplicationSessionTimer" nsAppSession [xml|
       <sessionID>#{sessionId}
@@ -105,6 +125,11 @@ toXml rq = renderLBS def $ case rq of
     -> doc "GetDeviceId" nsCSTA [xml|
       <switchName>#{switchName}
       <extension>#{extension}
+      |]
+
+  ReleaseDeviceId{..}
+    -> doc "ReleaseDeviceId" nsCSTA [xml|
+      <device>#{device}
       |]
 
   MonitorStart{..}
@@ -156,7 +181,12 @@ toXml rq = renderLBS def $ case rq of
         <privateData>
           <private>
             <AvayaEvents>
-              <invertFilter>true
+              <invertFilter>false
+      |]
+
+  MonitorStop{..}
+    -> doc "MonitorStop" acceptedProtocol [xml|
+      <monitorCrossRefID>#{monitorCrossRefID}
       |]
 
   RegisterTerminalRequest{..}
@@ -169,6 +199,12 @@ toXml rq = renderLBS def $ case rq of
           <mediaMode>NONE
           <dependencyMode>DEPENDENT
       |]
+
+  UnregisterTerminalRequest{..}
+    -> doc "UnregisterTerminalRequest" nsCSTA [xml|
+      <device>#{device}
+      |]
+
   SetHookswitchStatus{..}
     -> let hook = if hookswitchOnhook then "true" else "false" 
     in doc "SetHookswitchStatus" acceptedProtocol [xml|

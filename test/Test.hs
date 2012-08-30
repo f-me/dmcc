@@ -14,6 +14,8 @@ main = do
   [ext] <- getArgs
   Right h <- startMessageLoop "127.0.0.1" 4721
   attachObserver h print
-  startDeviceMonitoring h
+  Right m <- startDeviceMonitoring h
     "user" "pass" "S8300ADAC" (T.pack ext) "1234567"
-  forever $ threadDelay 1000000
+  threadDelay $ 10^7
+  stopDeviceMonitoring h m
+  shutdownLoop h
