@@ -54,6 +54,11 @@ data Request
     ,device :: Text
     ,hookswitchOnhook :: Bool
     }
+  | ButtonPress
+    {acceptedProtocol :: Text
+    ,device :: Text
+    ,button :: Text
+    }
   deriving Show
 
 data ProtocolVersion
@@ -212,3 +217,10 @@ toXml rq = renderLBS def $ case rq of
       <hookswitch>0000
       <hookswitchOnhook>#{hook}
       |]
+
+  ButtonPress{..}
+    -> doc "ButtonPress" acceptedProtocol [xml|
+      <device typeOfNumber="other" mediaClass="notKnown">#{device}
+      <button>#{button}
+      |]
+    

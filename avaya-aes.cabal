@@ -1,5 +1,5 @@
 Name:                avaya-aes
-Version:             0.0.3
+Version:             0.0.4
 Synopsis:
 Homepage:            https://github.com/f-me/avaya-aes
 License:             BSD3
@@ -39,6 +39,7 @@ Executable avaya-test
 Library
   Hs-source-dirs: src
   Exposed-modules:
+    Avaya.Actions
     Avaya.DeviceMonitoring
     Avaya.MessageLoop
     Avaya.Messages.Request
