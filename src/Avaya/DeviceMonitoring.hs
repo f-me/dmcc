@@ -2,6 +2,7 @@
 module Avaya.DeviceMonitoring
   (startDeviceMonitoring
   ,stopDeviceMonitoring
+  ,MonitoringHandle(..)
   ) where
 
 import Control.Monad
@@ -32,8 +33,8 @@ startDeviceMonitoring h user pass switch ext pwd = do
       ,requestedProtocolVersion = Rq.V4_2
       ,userName = user
       ,password = pass
-      ,sessionCleanupDelay = 180
-      ,requestedSessionDuration = 180
+      ,sessionCleanupDelay = 80
+      ,requestedSessionDuration = 80
       }
 
   Rs.GetDeviceIdResponse{..} <- sendRequestSync h
@@ -55,7 +56,7 @@ startDeviceMonitoring h user pass switch ext pwd = do
   case code of
     1 -> do
       pingThread <- forkIO $ forever $ do
-        threadDelay $ actualSessionDuration * 300 * 1000
+        threadDelay $ actualSessionDuration * 500 * 1000
         sendRequestAsync h
           $ Rq.ResetApplicationSessionTimer
             {sessionId = sessionID
