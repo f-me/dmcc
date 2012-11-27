@@ -40,7 +40,9 @@ data LoopHandle = LoopHandle
 data DeviceState = DeviceState
   deriving Show
 
-defaultDeviceState = DeviceState
+
+defaultDeviceState :: DeviceState
+defaultDeviceState =  DeviceState
 
   
 type Observer = LoopEvent -> IO ()

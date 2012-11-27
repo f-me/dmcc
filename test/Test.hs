@@ -1,6 +1,5 @@
 
 
-import Control.Monad
 import Control.Concurrent
 
 import qualified Data.Text as T

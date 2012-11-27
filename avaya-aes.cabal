@@ -1,5 +1,5 @@
 Name:                avaya-aes
-Version:             0.0.4
+Version:             0.0.5
 Synopsis:
 Homepage:            https://github.com/f-me/avaya-aes
 License:             BSD3
@@ -25,15 +25,15 @@ Executable avaya-test
 
   Build-depends:
     base                 == 4.*,
-    binary               == 0.5.*,
-    bytestring           == 0.9.*,
-    containers           >= 0.4.2,
-    mtl                  == 2.0.*,
+    binary               == 0.6.*,
+    bytestring           >= 0.9.1 && < 0.11,
+    containers           == 0.5.*,
+    mtl                  == 2.1.*,
     network              == 2.3.*,
-    stm                  == 2.3.*,
+    stm                  == 2.4.*,
     text                 == 0.11.*,
-    xml-conduit          == 0.7.*,
-    xml-hamlet           == 0.3.*
+    xml-conduit          == 1.0.*,
+    xml-hamlet           == 0.4.*
 
 
 Library
@@ -57,15 +57,15 @@ Library
 
   Build-depends:
     base                 == 4.*,
-    binary               == 0.5.*,
-    bytestring           == 0.9.*,
-    containers           >= 0.4.2,
-    mtl                  == 2.0.*,
+    binary               == 0.6.*,
+    bytestring           >= 0.9.1 && < 0.11,
+    containers           == 0.5.*,
+    mtl                  == 2.1.*,
     network              == 2.3.*,
-    stm                  == 2.3.*,
+    stm                  == 2.4.*,
     text                 == 0.11.*,
-    xml-conduit          == 0.7.*,
-    xml-hamlet           == 0.3.*
+    xml-conduit          == 1.0.*,
+    xml-hamlet           == 0.4.*
 
 source-repository head
   type:     git
