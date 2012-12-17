@@ -6,7 +6,9 @@ module Avaya.MessageLoop
   ,AvayaError(..)
   ,startMessageLoop
   ,shutdownLoop
+  ,ObserverId
   ,attachObserver
+  ,detachObserver
   ,sendRequestSync
   ,sendRequestAsync
   )where
@@ -17,7 +19,7 @@ import Control.Monad
 import Control.Concurrent
 import Control.Concurrent.STM
 
-import qualified Data.IntMap as Map
+import qualified Data.IntMap.Strict as Map
 
 import System.IO
 import Network
@@ -31,7 +33,7 @@ data LoopHandle = LoopHandle
   {socket :: Handle
   ,readThread :: ThreadId
   ,procThread :: ThreadId
-  ,observers  :: TVar [Observer]
+  ,observers  :: TVar (Map.IntMap Observer)
   ,waitingRequests  :: TVar (Map.IntMap (TMVar Response))
   ,deviceState :: TVar DeviceState
   ,invokeId :: TVar Int
@@ -44,8 +46,9 @@ data DeviceState = DeviceState
 defaultDeviceState :: DeviceState
 defaultDeviceState =  DeviceState
 
-  
+
 type Observer = LoopEvent -> IO ()
+newtype ObserverId = ObserverId Int
 
 data LoopEvent
   = AvayaRsp Response
@@ -68,7 +71,7 @@ startMessageLoop host port = withSocketsDo $ do
       $ Raw.readResponse sock
       >>= atomically . writeTChan msgChan . first AvayaRsp
 
-  observers <- newTVarIO []
+  observers <- newTVarIO Map.empty
   waitingRequests <- newTVarIO Map.empty
   deviceState <- newTVarIO defaultDeviceState
   invokeId <- newTVarIO 0
@@ -77,7 +80,7 @@ startMessageLoop host port = withSocketsDo $ do
       (msg,invokeId) <- atomically $ readTChan msgChan
       atomically $ modifyTVar' deviceState (updateDevice msg)
       obs <- readTVarIO observers
-      mapM_ (forkIO . ($msg)) obs
+      mapM_ (forkIO . ($msg)) $ Map.elems obs
       case msg of
         AvayaRsp rsp -> do
           syncs <- readTVarIO waitingRequests
@@ -101,15 +104,24 @@ updateDevice e = id
 shutdownLoop :: LoopHandle -> IO ()
 shutdownLoop (LoopHandle{..}) = do
   -- syncronyously push ShutdownRequested to all observers
-  readTVarIO observers >>= mapM_ ($ShutdownRequested)
+  readTVarIO observers >>= mapM_ ($ShutdownRequested) . Map.elems
   killThread procThread
   killThread readThread
   hClose socket
 
 
-attachObserver :: LoopHandle -> Observer -> IO ()
-attachObserver h o = atomically $ modifyTVar' (observers h) (o:)
+attachObserver :: LoopHandle -> Observer -> IO ObserverId
+attachObserver h o = atomically $ do
+  m <- readTVar $ observers h
+  let k = maybe 0 ((+1).fst.fst) $ Map.maxViewWithKey m
+  writeTVar (observers h) $! Map.insert k o m
+  return $ ObserverId k
 
+
+detachObserver :: LoopHandle -> ObserverId -> IO ()
+detachObserver h (ObserverId k)
+  = atomically
+  $ modifyTVar' (observers h) $ Map.delete k
 
 sendRequestSync :: LoopHandle -> Request -> IO Response
 sendRequestSync h rq = do
