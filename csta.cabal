@@ -1,0 +1,108 @@
+Name:                csta
+Version:             0.1
+Synopsis:            CSTA XML API implementation and WebSockets server
+Homepage:            https://github.com/f-me/csta
+License:             BSD3
+License-file:        LICENSE
+Author:              Max Taldykin, Timofey Cherganov, Dmitry Dzhus
+Maintainer:          max@formalmethods.ru
+Category:            Network
+Build-type:          Simple
+Cabal-version:       >=1.8
+Extra-source-files:  README.org, csta-ws/example.cfg
+
+source-repository head
+  type:     git
+  location: git://github.com/f-me/csta.git
+
+Executable csta-test
+  Hs-source-dirs: csta-test
+  Main-is: Test.hs
+
+  ghc-options: -Wall -fno-warn-unused-do-bind
+
+  Extensions:
+    OverloadedStrings,
+    RecordWildCards,
+    NamedFieldPuns
+
+  Build-depends:
+    base                 == 4.*,
+    aeson                == 0.8.*,
+    binary               >= 0.5 && < 0.8,
+    bytestring           >= 0.9.1 && < 0.11,
+    containers           == 0.5.*,
+    csta,
+    mtl                  >= 2.1 && < 2.3,
+    network              >= 2.3 && < 2.7,
+    stm                  == 2.4.*,
+    text                 >= 0.11 && < 1.3,
+    time                 >= 1.4 && < 1.6,
+    transformers         >= 0.3 && < 0.5,
+    xml-conduit          >= 1.0 && < 1.3,
+    xml-hamlet           == 0.4.*
+
+
+Executable csta-ws
+  Hs-source-dirs: csta-ws
+  Main-is: Main.hs
+
+  ghc-options: -Wall -fno-warn-unused-do-bind
+
+  Extensions:
+    OverloadedStrings,
+    RecordWildCards,
+    NamedFieldPuns
+
+  Build-depends:
+    base                 == 4.*,
+    aeson                == 0.8.*,
+    binary               >= 0.5 && < 0.8,
+    bytestring           >= 0.9.1 && < 0.11,
+    configurator         >= 0.2 && < 0.4,
+    containers           == 0.5.*,
+    csta,
+    hsyslog              >= 1.4 && < 2.1,
+    mtl                  >= 2.1 && < 2.3,
+    network              >= 2.3 && < 2.7,
+    stm                  == 2.4.*,
+    text                 >= 0.11 && < 1.3,
+    time                 >= 1.4 && < 1.6,
+    transformers         >= 0.3 && < 0.5,
+    websockets           == 0.9.*,
+    xml-conduit          >= 1.0 && < 1.3,
+    xml-hamlet           == 0.4.*
+
+Library
+  Hs-source-dirs: src
+  Exposed-modules:
+    CSTA
+    CSTA.Actions
+    CSTA.Types
+
+  Other-modules:
+    CSTA.XML.Raw
+    CSTA.XML.Request
+    CSTA.XML.Response
+
+  ghc-options: -Wall -fno-warn-unused-do-bind
+
+  Extensions:
+    OverloadedStrings,
+    RecordWildCards,
+    NamedFieldPuns
+
+  Build-depends:
+    base                 == 4.*,
+    aeson                == 0.8.*,
+    binary               >= 0.5 && < 0.8,
+    bytestring           >= 0.9.1 && < 0.11,
+    containers           == 0.5.*,
+    mtl                  >= 2.1 && < 2.3,
+    network              >= 2.3 && < 2.7,
+    stm                  == 2.4.*,
+    time                 >= 1.4 && < 1.6,
+    transformers         >= 0.3 && < 0.5,
+    text                 >= 0.11 && < 1.3,
+    xml-conduit          >= 1.0 && < 1.3,
+    xml-hamlet           == 0.4.*

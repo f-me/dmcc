@@ -1,15 +1,22 @@
-
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE QuasiQuotes #-}
 
-module Avaya.Messages.Request where
+{-| Low-level XML API requests. -}
+
+module CSTA.XML.Request
+
+where
 
 import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.ByteString.Lazy as L
+
 import Text.Hamlet.XML
 import Text.XML
 
+import CSTA.Types
 
 data Request
   = StartApplicationSession
@@ -28,36 +35,38 @@ data Request
     ,requestedSessionDuration :: Int
     }
   | GetDeviceId
-    {switchName :: Text
+    {switchName :: SwitchName
     ,extension :: Text
     }
+  | GetThirdPartyDeviceId
+    {switchName :: SwitchName
+    ,extension :: Text
+    }
+  | MakeCall
+    {callingDevice :: DeviceId
+    ,calledDirectoryNumber :: DeviceId
+    ,acceptedProtocol :: Text
+    }
+  | AnswerCall
+    {deviceId :: DeviceId
+    ,callId :: CallId
+    ,acceptedProtocol :: Text
+    }
+  | ClearConnection
+    {deviceId :: DeviceId
+    ,callId :: CallId
+    ,acceptedProtocol :: Text
+    }
   | ReleaseDeviceId
-    {device :: Text
+    {device :: DeviceId
     }
   | MonitorStart
     {acceptedProtocol :: Text
-    ,deviceObject :: Text
+    ,deviceObject :: DeviceId
     }
   | MonitorStop
     {acceptedProtocol :: Text
     ,monitorCrossRefID :: Text
-    }
-  | RegisterTerminalRequest
-    {device :: Text
-    ,password :: Text
-    }
-  | UnregisterTerminalRequest
-    {device :: Text
-    }
-  | SetHookswitchStatus
-    {acceptedProtocol :: Text
-    ,device :: Text
-    ,hookswitchOnhook :: Bool
-    }
-  | ButtonPress
-    {acceptedProtocol :: Text
-    ,device :: Text
-    ,button :: Text
     }
   deriving Show
 
@@ -97,6 +106,23 @@ doc name xmlns nodes = Document
   []
 
 
+class ToText a where
+  toText :: a -> Text
+
+
+instance ToText Text where
+  toText t = t
+
+
+deriving instance ToText DeviceId
+
+
+deriving instance ToText SwitchName
+
+
+deriving instance ToText CallId
+
+
 toXml :: Request -> L.ByteString
 toXml rq = renderLBS def $ case rq of
   StartApplicationSession{..}
@@ -128,99 +154,59 @@ toXml rq = renderLBS def $ case rq of
 
   GetDeviceId{..}
     -> doc "GetDeviceId" nsCSTA [xml|
-      <switchName>#{switchName}
+      <switchName>#{toText switchName}
       <extension>#{extension}
+      |]
+
+  GetThirdPartyDeviceId{..}
+    -> doc "GetThirdPartyDeviceId" nsCSTA [xml|
+      <switchName>#{toText switchName}
+      <extension>#{extension}
+      |]
+
+  MakeCall{..}
+    -> doc "MakeCall" acceptedProtocol [xml|
+      <callingDevice>#{toText callingDevice}
+      <calledDirectoryNumber>#{toText calledDirectoryNumber}
+      |]
+
+  AnswerCall{..}
+    -> doc "AnswerCall" acceptedProtocol [xml|
+      <callToBeAnswered>
+        <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
+        <callID>#{toText callId}
+      |]
+
+  ClearConnection{..}
+    -> doc "ClearConnection" acceptedProtocol [xml|
+      <connectionToBeCleared>
+        <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
+        <callID>#{toText callId}
       |]
 
   ReleaseDeviceId{..}
     -> doc "ReleaseDeviceId" nsCSTA [xml|
-      <device>#{device}
+      <device>#{toText device}
       |]
 
   MonitorStart{..}
     -> doc "MonitorStart" acceptedProtocol [xml|
       <monitorObject>
-        <deviceObject typeOfNumber="other" mediaClass="notKnown">#{deviceObject}
+        <deviceObject typeOfNumber="other" mediaClass="notKnown">
+          #{toText deviceObject}
       <requestedMonitorFilter>
         <callcontrol>
-          <bridged>true</bridged>
-          <callCleared>true</callCleared>
-          <conferenced>true</conferenced>
-          <connectionCleared>true</connectionCleared>
-          <delivered>true</delivered>
-          <digitsDialed>true</digitsDialed>
-          <diverted>true</diverted>
-          <established>true</established>
-          <failed>true</failed>
-          <held>true</held>
-          <offered>true</offered>
-          <originated>true</originated>
-          <queued>true</queued>
-          <retrieved>true</retrieved>
-          <serviceInitiated>true</serviceInitiated>
-          <transferred>true</transferred>
-        <physicalDeviceFeature>
-          <buttonInformation>true</buttonInformation>
-          <buttonPress>true</buttonPress>
-          <displayUpdated>true</displayUpdated>
-          <hookswitch>true</hookswitch>
-          <microphoneGain>true</microphoneGain>
-          <microphoneMute>true</microphoneMute>
-          <ringerStatus>true</ringerStatus>
-        <logicalDeviceFeature>
-          <agentBusy>true</agentBusy>
-          <agentLoggedOn>true</agentLoggedOn>
-          <agentLoggedOff>true</agentLoggedOff>
-          <agentNotReady>true</agentNotReady>
-          <agentReady>true</agentReady>
-          <agentWorkingAfterCall>true</agentWorkingAfterCall>
-          <autoAnswer>true</autoAnswer>
-          <autoWorkMode>true</autoWorkMode>
-          <callBack>true</callBack>
-          <callBackMessage>true</callBackMessage>
-          <callerIDStatus>true</callerIDStatus>
-          <doNotDisturb>true</doNotDisturb>
-          <forwarding>true</forwarding>
-          <routeingMode>true</routeingMode>
+          <connectionCleared>true
+          <delivered>true
+          <established>true
       <extensions>
         <privateData>
           <private>
             <AvayaEvents>
-              <invertFilter>false
+              <invertFilter>true
       |]
 
   MonitorStop{..}
     -> doc "MonitorStop" acceptedProtocol [xml|
       <monitorCrossRefID>#{monitorCrossRefID}
       |]
-
-  RegisterTerminalRequest{..}
-    -> doc "RegisterTerminalRequest" nsCSTA [xml|
-      <device typeOfNumber="other" mediaClass="notKnown">#{device}
-      <loginInfo>
-          <forceLogin>true
-          <sharedControl>false
-          <password>#{password}
-          <mediaMode>NONE
-          <dependencyMode>DEPENDENT
-      |]
-
-  UnregisterTerminalRequest{..}
-    -> doc "UnregisterTerminalRequest" nsCSTA [xml|
-      <device>#{device}
-      |]
-
-  SetHookswitchStatus{..}
-    -> let hook = if hookswitchOnhook then "true" else "false" 
-    in doc "SetHookswitchStatus" acceptedProtocol [xml|
-      <device typeOfNumber="other" mediaClass="notKnown">#{device}
-      <hookswitch>0000
-      <hookswitchOnhook>#{hook}
-      |]
-
-  ButtonPress{..}
-    -> doc "ButtonPress" acceptedProtocol [xml|
-      <device typeOfNumber="other" mediaClass="notKnown">#{device}
-      <button>#{button}
-      |]
-    

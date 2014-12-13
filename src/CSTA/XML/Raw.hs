@@ -1,5 +1,18 @@
+{-|
 
-module Avaya.Messages.Raw where
+CSTA request/response packet processing.
+
+
+CSTA header format:
+
+@
+|  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  | ...        |
+|  Version  |   Length  |       InvokeID        | XML Message Body |
+@
+
+-}
+
+module CSTA.XML.Raw where
 
 
 import System.IO
@@ -11,13 +24,8 @@ import qualified Data.ByteString.Char8 as S
 import qualified Data.ByteString.Lazy  as L
 import Text.Printf
 
-import Avaya.Messages.Request
-import Avaya.Messages.Response
-
-
--- CSTA header format.
--- |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  | ...        |
--- |  Version  |   Length  |       InvokeID        | XML Message Body |
+import CSTA.XML.Request
+import CSTA.XML.Response
 
 
 -- FIXME: error

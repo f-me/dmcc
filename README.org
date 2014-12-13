@@ -10,3 +10,6 @@
 
   - ...
 
+* Running csta-ws server
+
+  See example configuration file at csta-ws/example.cfg
