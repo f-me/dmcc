@@ -93,7 +93,7 @@ avayaApplication cfg as pending = do
       syslog Debug $ "New websocket opened for " ++ show ext
       forkPingThread conn 30
       -- Assume that all agents are on the same switch
-      ah <- controlAgent (aesSwitch cfg) (T.pack $ show ext) as
+      ah <- controlAgent (aesSwitch cfg) (Extension ext) as
       syslog Debug $ "Controlling agent " ++ show ah
       -- Event/action loops
       evThread <- handleEvents ah $

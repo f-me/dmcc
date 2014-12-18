@@ -23,15 +23,16 @@ main = do
     \pn ->
       error $ "Usage: " ++ pn ++
       " HOST PORT USER PWD SWITCH EXTENSION [NUMBER]"
-  let [host, port', user, pwd, switch', ext', to] = l
+  let [host, port', user, pwd, switch', ext', to'] = l
       port = either (error "Bad port") fst $ T.decimal $ T.pack port'
-      ext = T.pack ext'
+      ext = either (error "Bad extension") fst $ T.decimal $ T.pack ext'
+      to = either (error "Bad number") fst $ T.decimal $ T.pack to'
       switch = SwitchName $ T.pack switch'
 
   as <- startSession host port (T.pack user) (T.pack pwd)
   aid <- controlAgent switch ext as
   handleEvents aid (print . encode)
-  agentAction (MakeCall $ T.pack to) aid
+  agentAction (MakeCall to) aid
   threadDelay $ 3*(10^7)
   releaseAgent aid
   stopSession as

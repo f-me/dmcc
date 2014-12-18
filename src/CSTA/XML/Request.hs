@@ -36,11 +36,11 @@ data Request
     }
   | GetDeviceId
     {switchName :: SwitchName
-    ,extension :: Text
+    ,extension :: Extension
     }
   | GetThirdPartyDeviceId
     {switchName :: SwitchName
-    ,extension :: Text
+    ,extension :: Extension
     }
   | MakeCall
     {callingDevice :: DeviceId
@@ -114,6 +114,10 @@ instance ToText Text where
   toText t = t
 
 
+instance ToText Extension where
+  toText (Extension e) = T.pack $ show e
+
+
 deriving instance ToText DeviceId
 
 
@@ -155,13 +159,13 @@ toXml rq = renderLBS def $ case rq of
   GetDeviceId{..}
     -> doc "GetDeviceId" nsCSTA [xml|
       <switchName>#{toText switchName}
-      <extension>#{extension}
+      <extension>#{toText extension}
       |]
 
   GetThirdPartyDeviceId{..}
     -> doc "GetThirdPartyDeviceId" nsCSTA [xml|
       <switchName>#{toText switchName}
-      <extension>#{extension}
+      <extension>#{toText extension}
       |]
 
   MakeCall{..}

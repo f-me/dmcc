@@ -23,6 +23,10 @@ newtype CallId =
   deriving (Eq, Ord, Show, FromJSON, ToJSON)
 
 
+newtype Extension =
+  Extension Int
+  deriving (Num, Enum, Real, Integral, Eq, Ord, Show, FromJSON, ToJSON)
+
 newtype SwitchName =
   SwitchName Text
   deriving (Eq, Ord, Show, FromJSON, ToJSON)

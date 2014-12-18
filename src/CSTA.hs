@@ -74,7 +74,7 @@ data CSTAHandle = CSTAHandle
   }
 
 
-data Action = MakeCall{number :: Text}
+data Action = MakeCall{number :: Extension}
             | AnswerCall{callId :: CallId}
             | EndCall{callId :: CallId}
             deriving Show
@@ -85,7 +85,9 @@ $(deriveFromJSON
   ''Action)
 
 
-newtype AgentId = AgentId (SwitchName, Text) deriving (Eq, Ord, Show)
+newtype AgentId =
+  AgentId (SwitchName, Extension)
+  deriving (Eq, Ord, Show)
 
 
 data Agent = Agent
@@ -282,9 +284,7 @@ releaseAgentLock (aid, as) =
 -- CSTA API. If the agent has already been registered, return the old
 -- entry (it's safe to add the same agent multiple times).
 controlAgent :: SwitchName
-             -- ^ Switch name.
-             -> Text
-             -- ^ Extension number.
+             -> Extension
              -> Session
              -> IO AgentHandle
 controlAgent switch ext as = do
