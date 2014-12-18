@@ -160,6 +160,7 @@ toXml rq = renderLBS def $ case rq of
     -> doc "GetDeviceId" nsCSTA [xml|
       <switchName>#{toText switchName}
       <extension>#{toText extension}
+      <controllableByOtherSessions>true
       |]
 
   GetThirdPartyDeviceId{..}
