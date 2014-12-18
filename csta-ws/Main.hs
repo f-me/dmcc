@@ -9,10 +9,6 @@ TODO:
 
 - Describe CSTA-WebSockets API
 
-- Handle signals
-
-- Logging
-
 - Unique client IDs in log messages
 
 - Provide access to agent state (calls list)
@@ -34,7 +30,9 @@ import           Data.Text (Text)
 
 import           Network.WebSockets
 import           System.Environment
+import           System.Exit
 import           System.Posix.Syslog
+import           System.Posix.Signals
 
 import           CSTA
 
@@ -53,10 +51,19 @@ data Config =
 
 main :: IO ()
 main = getArgs >>= \case
-  [config] -> realMain config
+  [config] -> withSyslog "csta-ws" [PID] USER (logUpTo Debug) $ do
+    this <- myThreadId
+    -- Terminate on SIGTERM
+    _ <- installHandler
+         sigTERM
+         (Catch (syslog Notice "Termination signal received" >>
+                 throwTo this ExitSuccess))
+         Nothing
+    realMain config
   _ -> getProgName >>= \pn -> error $ "Usage: " ++ pn ++ " <path to config>"
 
 
+-- | Read config and actually start the server
 realMain :: FilePath -> IO ()
 realMain config = do
   c <- Cfg.load [Cfg.Required config]
@@ -68,18 +75,15 @@ realMain config = do
       <*> Cfg.require c "aes-pass"
       <*> (SwitchName <$> Cfg.require c "aes-switch")
 
-  withSyslog "csta-ws" [PID] USER (logUpTo Debug) $
-    bracket
-      (syslog Info ("Starting session using " ++ show cfg) >>
-       startSession aesAddr aesPort aesUser aesPass)
-      (\as ->
-         do
-           syslog Info $ "Stopping " ++ show as
-           stopSession as)
-      (\as ->
-         do
-           syslog Info $ "Running server for " ++ show as
-           runServer "0.0.0.0" listenPort $ avayaApplication cfg as)
+  bracket
+    (syslog Info ("Starting session using " ++ show cfg) >>
+     startSession aesAddr aesPort aesUser aesPass)
+    (\s ->
+       syslog Info ("Stopping " ++ show s) >>
+       stopSession s)
+    (\s ->
+       syslog Info ("Running server for " ++ show s) >>
+       runServer "0.0.0.0" listenPort (avayaApplication cfg s))
 
 
 avayaApplication :: Config -> Session -> ServerApp
