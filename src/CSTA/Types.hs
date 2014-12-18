@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -9,6 +10,7 @@ where
 
 import Data.Aeson
 import Data.Aeson.TH
+import Data.Data
 import Data.Text
 import Data.Time.Clock
 
@@ -25,11 +27,14 @@ newtype CallId =
 
 newtype Extension =
   Extension Int
-  deriving (Num, Enum, Real, Integral, Eq, Ord, Show, FromJSON, ToJSON)
+  deriving (Num, Enum, Real, Integral,
+            Eq, Ord, Show,
+            Data, Typeable,
+            FromJSON, ToJSON)
 
 newtype SwitchName =
   SwitchName Text
-  deriving (Eq, Ord, Show, FromJSON, ToJSON)
+  deriving (Eq, Ord, Show, Data, Typeable, FromJSON, ToJSON)
 
 
 data CallDirection =

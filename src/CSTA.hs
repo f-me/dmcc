@@ -61,7 +61,7 @@ import qualified CSTA.XML.Response as Rs
 import qualified CSTA.XML.Raw as Raw
 
 
--- | Low-level AES API plumbing.
+-- | Low-level CSTA XML API plumbing (message loop).
 data CSTAHandle = CSTAHandle
   { socket :: Handle
   , readThread :: ThreadId
@@ -74,6 +74,7 @@ data CSTAHandle = CSTAHandle
   }
 
 
+-- | Actions performable by a controlled agent.
 data Action = MakeCall{number :: Extension}
             | AnswerCall{callId :: CallId}
             | EndCall{callId :: CallId}
@@ -87,9 +88,10 @@ $(deriveFromJSON
 
 newtype AgentId =
   AgentId (SwitchName, Extension)
-  deriving (Eq, Ord, Show)
+  deriving (Data, Typeable, Eq, Ord, Show)
 
 
+-- | An agent controlled by a CSTA API session.
 data Agent = Agent
   { deviceId :: DeviceId
   , monitorId :: Text
@@ -130,7 +132,6 @@ instance Show Session where
     "}"
 
 
-
 type AgentHandle = (AgentId, Session)
 
 
@@ -138,12 +139,11 @@ data LoopEvent
   = CSTARsp Response
   | Timeout
   | ReadError
-  | ShutdownRequested
   deriving Show
 
 
 data Error = Error String
-           | StoppingSession
+           | UnknownAgent AgentId
            deriving (Data, Typeable, Show)
 
 
@@ -282,7 +282,8 @@ releaseAgentLock (aid, as) =
 
 -- | Enable an active agent to be monitored and controlled through
 -- CSTA API. If the agent has already been registered, return the old
--- entry (it's safe to add the same agent multiple times).
+-- entry (it's safe to call this function for the same agent multiple
+-- times).
 controlAgent :: SwitchName
              -> Extension
              -> Session
@@ -415,7 +416,7 @@ releaseAgent (aid, as) = do
           Nothing -> return Nothing
 
   case prev of
-    Nothing -> throwIO $ Error "No such agent"
+    Nothing -> throwIO $ UnknownAgent aid
     Just ag ->
       handle (\e ->
                 releaseAgentLock (aid, as) >>
@@ -438,7 +439,7 @@ handleEvents :: AgentHandle -> (Rs.Event -> IO ()) -> IO ThreadId
 handleEvents (aid, as) handler = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
-    Nothing -> throwIO $ Error "No such agent"
+    Nothing -> throwIO $ UnknownAgent aid
     Just (Agent{..}) ->
       do
         sub <- atomically $ dupTChan eventChan
@@ -453,5 +454,5 @@ getAgentCalls :: AgentHandle
 getAgentCalls (aid, as) = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
-    Nothing -> throwIO $ Error "No such agent"
+    Nothing -> throwIO $ UnknownAgent aid
     Just (Agent{..}) -> readTVarIO calls
