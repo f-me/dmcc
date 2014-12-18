@@ -316,69 +316,22 @@ controlAgent switch ext as = do
           , extension = ext
           }
 
-        -- TODO Move action and event processing out of here
+        -- Setup action and event processing for this agent
 
         actionChan <- newTChanIO
-        actionThread <- forkIO $ forever $ do
+        actionThread <-
+          forkIO $ forever $
           (atomically $ readTChan actionChan) >>=
-            \case
-              MakeCall toNumber -> do
-                rspDest <-
-                  sendRequestSync (avayaHandle as) $
-                  Rq.GetThirdPartyDeviceId
-                  -- Assume destination switch is the same as agent's
-                  { switchName = switch
-                  , extension = toNumber
-                  }
-                sendRequestAsync (avayaHandle as) $
-                  Rq.MakeCall
-                  device
-                  (Rs.device rspDest)
-                  (protocolVersion as)
-              AnswerCall callId -> do
-                sendRequestAsync (avayaHandle as) $
-                  Rq.AnswerCall
-                  device
-                  callId
-                  (protocolVersion as)
-              EndCall callId -> do
-                sendRequestAsync (avayaHandle as) $
-                  Rq.ClearConnection
-                  device
-                  callId
-                  (protocolVersion as)
+          processAgentAction aid device as
 
         eventChan <- newBroadcastTChanIO
         calls <- newTVarIO Map.empty
 
-        -- Handle CSTA events for this agent
         inputChan <- newTChanIO
-        inputThread <- forkIO $ forever $
-          (atomically $ readTChan inputChan) >>= \ev -> do
-            case ev of
-              -- New call
-              Rs.DeliveredEvent{..} -> do
-                now <- getCurrentTime
-                let (dir, interloc) = if callingDevice == device
-                                       then (Out, calledDevice)
-                                       else (In, callingDevice)
-                    call = Call dir now interloc Nothing
-                atomically $ do
-                  modifyTVar calls (Map.insert callId call)
-              Rs.EstablishedEvent{..} -> do
-                now <- getCurrentTime
-                atomically $
-                  modifyTVar calls $
-                    \m ->
-                      case Map.lookup callId m of
-                        Just call ->
-                          Map.insert callId call{answered = Just now} m
-                        Nothing ->
-                          error "Established connection to undelivered call"
-              Rs.ConnectionClearedEvent{..} -> do
-                atomically $ modifyTVar calls $ Map.delete callId
-              Rs.UnknownEvent -> return ()
-            atomically $ writeTChan eventChan ev
+        inputThread <-
+          forkIO $ forever $
+          (atomically $ readTChan inputChan) >>=
+          processAgentEvent device calls eventChan
 
 
         Rs.MonitorStartResponse{..} <-
@@ -399,6 +352,71 @@ controlAgent switch ext as = do
         atomically $ modifyTVar' (agents as) (Map.insert aid ag)
         releaseAgentLock (aid, as)
         return (aid, as)
+
+
+-- | Translate agent actions into actual CSTA API requests.
+processAgentAction :: AgentId -> DeviceId -> Session -> Action -> IO ()
+processAgentAction (AgentId (switch, _)) device as action =
+  case action of
+    MakeCall toNumber -> do
+      rspDest <-
+        sendRequestSync (avayaHandle as) $
+        Rq.GetThirdPartyDeviceId
+        -- Assume destination switch is the same as agent's
+        { switchName = switch
+        , extension = toNumber
+        }
+      sendRequestAsync (avayaHandle as) $
+        Rq.MakeCall
+        device
+        (Rs.device rspDest)
+        (protocolVersion as)
+    AnswerCall callId ->
+      sendRequestAsync (avayaHandle as) $
+        Rq.AnswerCall
+        device
+        callId
+        (protocolVersion as)
+    EndCall callId ->
+      sendRequestAsync (avayaHandle as) $
+        Rq.ClearConnection
+        device
+        callId
+        (protocolVersion as)
+
+
+-- | Process CSTA API events for this agent to change its state and
+-- broadcast events further.
+processAgentEvent :: DeviceId
+                  -> TVar (Map.Map CallId Call)
+                  -> TChan Rs.Event
+                  -> Rs.Event
+                  -> IO ()
+processAgentEvent device calls eventChan ev = do
+  case ev of
+    -- New call
+    Rs.DeliveredEvent{..} -> do
+      now <- getCurrentTime
+      let (dir, interloc) = if callingDevice == device
+                             then (Out, calledDevice)
+                             else (In, callingDevice)
+          call = Call dir now interloc Nothing
+      atomically $ do
+        modifyTVar calls (Map.insert callId call)
+    Rs.EstablishedEvent{..} -> do
+      now <- getCurrentTime
+      atomically $
+        modifyTVar calls $
+          \m ->
+            case Map.lookup callId m of
+              Just call ->
+                Map.insert callId call{answered = Just now} m
+              Nothing ->
+                error "Established connection to undelivered call"
+    Rs.ConnectionClearedEvent{..} -> do
+      atomically $ modifyTVar calls $ Map.delete callId
+    Rs.UnknownEvent -> return ()
+  atomically $ writeTChan eventChan ev
 
 
 -- | Forget about an agent, releasing his device and monitors.
