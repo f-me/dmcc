@@ -32,9 +32,15 @@ newtype Extension =
             Data, Typeable,
             FromJSON, ToJSON)
 
+
 newtype SwitchName =
   SwitchName Text
   deriving (Eq, Ord, Show, Data, Typeable, FromJSON, ToJSON)
+
+
+newtype AgentId =
+  AgentId (SwitchName, Extension)
+  deriving (Data, Typeable, Eq, Ord, Show)
 
 
 data CallDirection =

@@ -78,10 +78,11 @@ Library
   Hs-source-dirs: src
   Exposed-modules:
     CSTA
-    CSTA.Actions
-    CSTA.Types
 
   Other-modules:
+    CSTA.Agent
+    CSTA.Session
+    CSTA.Types
     CSTA.XML.Raw
     CSTA.XML.Request
     CSTA.XML.Response
