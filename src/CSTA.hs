@@ -228,7 +228,7 @@ stopSession as@(Session{..}) = do
   ags <- readTVarIO agents
   mapM_ releaseAgent $ zip (Map.keys ags) (repeat as)
 
-  sendRequestAsync avayaHandle $
+  sendRequestSync avayaHandle $
     Rq.StopApplicationSession{sessionID = sessionId}
   killThread pingThread
   killThread $ procThread avayaHandle
