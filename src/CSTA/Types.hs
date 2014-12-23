@@ -15,6 +15,9 @@ import Data.Text
 import Data.Time.Clock
 
 
+-- | Device ID used in CSTA requests.
+--
+-- This is based on text as stated in CSTA specification.
 newtype DeviceId =
   DeviceId Text
   deriving (Eq, Ord, Show, FromJSON, ToJSON)

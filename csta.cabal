@@ -100,6 +100,7 @@ Library
     binary               >= 0.5 && < 0.8,
     bytestring           >= 0.9.1 && < 0.11,
     containers           == 0.5.*,
+    lens                 == 4.6.*,
     mtl                  >= 2.1 && < 2.3,
     network              >= 2.3 && < 2.7,
     stm                  == 2.4.*,

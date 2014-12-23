@@ -1,4 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 {-|
@@ -13,10 +15,12 @@ module CSTA.Agent
 where
 
 import           Control.Exception
+import           Control.Lens hiding (Action)
 import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
 
+import           Data.Aeson as A
 import           Data.Aeson.TH
 import           Data.Data
 import qualified Data.Map.Strict as Map
@@ -43,20 +47,48 @@ $(deriveFromJSON
   ''Action)
 
 
+data AgentState = AgentState
+    { _calls :: Map.Map CallId Call
+    }
+    deriving Show
+
+
+instance ToJSON AgentState where
+  toJSON s =
+    object [ "calls" A..= (Map.mapKeys (\(CallId t) -> t) $ _calls s)
+           ]
+
+
+$(makeLenses ''AgentState)
+
+
+-- | An event observed by a controlled agent, along with updated agent
+-- state. Events may be used by agent subscribers to provide user with
+-- information.
+data Event = Event
+    { cstaEvent :: Rs.Event
+    , newState :: AgentState
+    }
+    deriving Show
+
+
+$(deriveToJSON defaultOptions ''Event)
+
+
 -- | An agent controlled by a CSTA API session.
 data Agent = Agent
-  { deviceId :: DeviceId
-  , monitorId :: Text
-  , actionChan :: TChan Action
-  -- ^ Actions performed by the agent.
-  , actionThread :: ThreadId
-  , inputChan :: TChan Rs.Event
-  -- ^ Input chan for XML events produced by this agent's monitor.
-  , inputThread :: ThreadId
-  , eventChan :: TChan Rs.Event
-  -- ^ Broadcasting chan with agent events.
-  , calls :: TVar (Map.Map CallId Call)
-  }
+    { deviceId :: DeviceId
+    , monitorId :: Text
+    , actionChan :: TChan Action
+    -- ^ Actions performed by the agent.
+    , actionThread :: ThreadId
+    , inputChan :: TChan Rs.Event
+    -- ^ Input chan for XML events produced by this agent's monitor.
+    , inputThread :: ThreadId
+    , eventChan :: TChan Event
+    -- ^ Broadcasting chan with agent events.
+    , state :: TVar AgentState
+    }
 
 
 instance Show Agent where
@@ -77,6 +109,7 @@ data AgentError = Error String
 instance (Exception AgentError)
 
 
+-- | Command an agent to do something.
 agentAction :: Action -> AgentHandle -> IO ()
 agentAction cmd (aid, as) = do
   ags <- readTVarIO (agents as)
@@ -139,13 +172,13 @@ controlAgent switch ext as = do
           processAgentAction aid device as
 
         eventChan <- newBroadcastTChanIO
-        calls <- newTVarIO Map.empty
+        state <- newTVarIO $ AgentState Map.empty
 
         inputChan <- newTChanIO
         inputThread <-
           forkIO $ forever $
           (atomically $ readTChan inputChan) >>=
-          processAgentEvent device calls eventChan
+          processAgentEvent device state eventChan
 
 
         Rs.MonitorStartResponse{..} <-
@@ -162,7 +195,7 @@ controlAgent switch ext as = do
                  inputChan
                  inputThread
                  eventChan
-                 calls
+                 state
         atomically $ modifyTVar' (agents as) (Map.insert aid ag)
         releaseAgentLock (aid, as)
         return (aid, as)
@@ -202,35 +235,34 @@ processAgentAction (AgentId (switch, _)) device as action =
 -- | Process CSTA API events for this agent to change its state and
 -- broadcast events further.
 processAgentEvent :: DeviceId
-                  -> TVar (Map.Map CallId Call)
-                  -> TChan Rs.Event
+                  -> TVar AgentState
+                  -> TChan Event
                   -> Rs.Event
                   -> IO ()
-processAgentEvent device calls eventChan ev = do
-  case ev of
-    -- New call
-    Rs.DeliveredEvent{..} -> do
-      now <- getCurrentTime
-      let (dir, interloc) = if callingDevice == device
-                             then (Out, calledDevice)
-                             else (In, callingDevice)
-          call = Call dir now interloc Nothing
-      atomically $ do
-        modifyTVar calls (Map.insert callId call)
-    Rs.EstablishedEvent{..} -> do
-      now <- getCurrentTime
-      atomically $
-        modifyTVar calls $
+processAgentEvent device state eventChan ev = do
+  now <- getCurrentTime
+  atomically $ do
+    case ev of
+      -- New call
+      Rs.DeliveredEvent{..} -> do
+        let (dir, interloc) = if callingDevice == device
+                              then (Out, calledDevice)
+                              else (In, callingDevice)
+            call = Call dir now interloc Nothing
+        modifyTVar state (calls %~ Map.insert callId call)
+      Rs.EstablishedEvent{..} -> do
+        modifyTVar state $
           \m ->
-            case Map.lookup callId m of
+            case Map.lookup callId (_calls m) of
               Just call ->
-                Map.insert callId call{answered = Just now} m
+                m & calls %~ Map.insert callId call{answered = Just now}
               Nothing ->
                 error "Established connection to undelivered call"
-    Rs.ConnectionClearedEvent{..} -> do
-      atomically $ modifyTVar calls $ Map.delete callId
-    Rs.UnknownEvent -> return ()
-  atomically $ writeTChan eventChan ev
+      Rs.ConnectionClearedEvent{..} -> do
+        modifyTVar state $ (calls %~ at callId .~ Nothing)
+      Rs.UnknownEvent -> return ()
+    s <- readTVar state
+    writeTChan eventChan $ Event ev s
 
 
 -- | Forget about an agent, releasing his device and monitors.
@@ -267,7 +299,7 @@ releaseAgent (aid, as) = do
         return ()
 
 
-handleEvents :: AgentHandle -> (Rs.Event -> IO ()) -> IO ThreadId
+handleEvents :: AgentHandle -> (Event -> IO ()) -> IO ThreadId
 handleEvents (aid, as) handler = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
@@ -281,10 +313,10 @@ handleEvents (aid, as) handler = do
         return tid
 
 
-getAgentCalls :: AgentHandle
-              -> IO (Map.Map CallId Call)
-getAgentCalls (aid, as) = do
+getAgentState :: AgentHandle
+              -> IO AgentState
+getAgentState (aid, as) = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
     Nothing -> throwIO $ UnknownAgent aid
-    Just (Agent{..}) -> readTVarIO calls
+    Just (Agent{..}) -> readTVarIO state

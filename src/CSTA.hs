@@ -25,9 +25,9 @@ module CSTA
   , Action(..)
   , agentAction
 
-  , Rs.Event
+  , Event(..)
   , handleEvents
-  , getAgentCalls
+  , getAgentState
 
   , module CSTA.Types
   )
@@ -37,4 +37,3 @@ where
 import           CSTA.Agent
 import           CSTA.Session
 import           CSTA.Types
-import qualified CSTA.XML.Response as Rs

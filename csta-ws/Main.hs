@@ -9,9 +9,7 @@ TODO:
 
 - Describe CSTA-WebSockets API
 
-- Unique client IDs in log messages
-
-- Provide access to agent state (calls list)
+- Report agent state after handshake
 
 -}
 
