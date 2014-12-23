@@ -22,6 +22,7 @@ import           Control.Concurrent.STM
 
 import           Data.Aeson as A
 import           Data.Aeson.TH
+import           Data.CaseInsensitive (original)
 import           Data.Data
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -93,7 +94,7 @@ data Agent = Agent
 
 instance Show Agent where
   show (Agent (DeviceId d) m _ _ _ _ _ _) =
-    "Agent{deviceId=" ++ unpack d ++
+    "Agent{deviceId=" ++ unpack (original d) ++
     ", monitorId=" ++ unpack m ++
     "}"
 

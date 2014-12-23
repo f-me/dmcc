@@ -10,7 +10,9 @@ where
 
 import Data.Aeson
 import Data.Aeson.TH
+import Data.CaseInsensitive
 import Data.Data
+import Data.Functor
 import Data.Text
 import Data.Time.Clock
 
@@ -19,8 +21,16 @@ import Data.Time.Clock
 --
 -- This is based on text as stated in CSTA specification.
 newtype DeviceId =
-  DeviceId Text
-  deriving (Eq, Ord, Show, FromJSON, ToJSON)
+  DeviceId (CI Text)
+  deriving (Eq, Ord, Show)
+
+
+instance FromJSON DeviceId where
+  parseJSON v = (DeviceId . mk) <$> parseJSON v
+
+
+instance ToJSON DeviceId where
+  toJSON (DeviceId t) = toJSON $ original t
 
 
 newtype CallId =

@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE QuasiQuotes #-}
@@ -8,15 +9,17 @@ module CSTA.XML.Request
 
 where
 
-import qualified Data.Map as Map
-import Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.ByteString.Lazy as L
+import           Data.CaseInsensitive
+import qualified Data.Map as Map
+import           Data.Text (Text)
+import qualified Data.Text as T
 
-import Text.Hamlet.XML
-import Text.XML
+import           Text.Hamlet.XML
+import           Text.XML
 
-import CSTA.Types
+import           CSTA.Types
+
 
 data Request
   = StartApplicationSession
@@ -108,6 +111,10 @@ doc name xmlns nodes = Document
 
 class ToText a where
   toText :: a -> Text
+
+
+instance ToText (CI Text) where
+  toText t = toText $ original t
 
 
 instance ToText Text where

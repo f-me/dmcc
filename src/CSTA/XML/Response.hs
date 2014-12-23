@@ -12,6 +12,7 @@ where
 
 import           Control.Exception (SomeException)
 import           Data.ByteString.Lazy (ByteString)
+import           Data.CaseInsensitive (mk)
 import           Data.List
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -82,12 +83,12 @@ fromXml xml
 
         "GetDeviceIdResponse"
           -> GetDeviceIdResponse
-            {device = DeviceId $ text cur "device"
+            {device = DeviceId $ mk $ text cur "device"
             }
 
         "GetThirdPartyDeviceIdResponse"
           -> GetThirdPartyDeviceIdResponse
-            {device = DeviceId $ text cur "device"
+            {device = DeviceId $ mk $ text cur "device"
             }
 
         "MonitorStartResponse"
@@ -101,9 +102,9 @@ fromXml xml
              { callId =
                CallId $ textFromPath cur "connection" ["callId"]
              , callingDevice =
-               DeviceId $ textFromPath cur "callingDevice" ["deviceIdentifier"]
+               DeviceId $ mk $ textFromPath cur "callingDevice" ["deviceIdentifier"]
              , calledDevice =
-               DeviceId $ textFromPath cur "calledDevice" ["deviceIdentifier"]
+               DeviceId $ mk $ textFromPath cur "calledDevice" ["deviceIdentifier"]
              }
 
         "EstablishedEvent"
