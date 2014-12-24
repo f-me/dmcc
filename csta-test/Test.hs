@@ -30,6 +30,7 @@ main = do
       switch = SwitchName $ T.pack switch'
 
   as <- startSession host port (T.pack user) (T.pack pwd)
+        (Just defaultLoggingOptions)
   aid <- controlAgent switch ext as
   handleEvents aid (print . encode)
   agentAction (MakeCall to) aid

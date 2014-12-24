@@ -74,3 +74,9 @@ data Call = Call
 
 
 $(deriveToJSON defaultOptions ''Call)
+
+
+data LoggingOptions = LoggingOptions
+  { ident :: String
+  , includeSessionId :: Bool
+  }

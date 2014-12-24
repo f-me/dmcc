@@ -18,6 +18,7 @@ module CSTA
   ( Session
   , startSession
   , stopSession
+  , defaultLoggingOptions
 
   , controlAgent
   , releaseAgent

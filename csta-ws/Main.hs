@@ -43,6 +43,7 @@ data Config =
   , aesUser    :: Text
   , aesPass    :: Text
   , aesSwitch  :: SwitchName
+  , logLibrary :: Bool
   }
   deriving Show
 
@@ -72,10 +73,12 @@ realMain config = do
       <*> Cfg.require c "aes-user"
       <*> Cfg.require c "aes-pass"
       <*> (SwitchName <$> Cfg.require c "aes-switch")
+      <*> Cfg.require c "log-library"
 
   bracket
     (syslog Info ("Starting session using " ++ show cfg) >>
-     startSession aesAddr aesPort aesUser aesPass)
+     startSession aesAddr aesPort aesUser aesPass
+     (if logLibrary then Just defaultLoggingOptions else Nothing))
     (\s ->
        syslog Info ("Stopping " ++ show s) >>
        stopSession s)

@@ -42,6 +42,7 @@ data CSTAHandle = CSTAHandle
   , syncResponses :: TVar (IntMap.IntMap (TMVar Response))
   , invokeId :: TVar Int
     -- ^ Request/response counter.
+  , loggingOptions :: Maybe LoggingOptions
   }
 
 
@@ -71,13 +72,19 @@ data LoopEvent
   deriving Show
 
 
+
+defaultLoggingOptions :: LoggingOptions
+defaultLoggingOptions = LoggingOptions "csta-lib" False
+
+
 --FIXME: handle network errors
 startSession :: String
              -> Int
              -> Text
              -> Text
+             -> Maybe LoggingOptions
              -> IO Session
-startSession host port user pass = withSocketsDo $ do
+startSession host port user pass lopts = withSocketsDo $ do
   sock <- connectTo host (PortNumber $ fromIntegral port)
   hSetBuffering sock NoBuffering
 
@@ -85,7 +92,7 @@ startSession host port user pass = withSocketsDo $ do
   msgChan <- newTChanIO
   readThread <-
     forkIO $ forever $
-    Raw.readResponse sock >>=
+    Raw.readResponse lopts sock >>=
     atomically . writeTChan msgChan . first CSTARsp
 
   syncResponses <- newTVarIO IntMap.empty
@@ -111,7 +118,7 @@ startSession host port user pass = withSocketsDo $ do
 
   invokeId <- newTVarIO 0
   agLocks <- newTVarIO Set.empty
-  let h = CSTAHandle sock readThread procThread syncResponses invokeId
+  let h = CSTAHandle sock readThread procThread syncResponses invokeId lopts
 
   Rs.StartApplicationSessionPosResponse{..} <- sendRequestSync h
     $ Rq.StartApplicationSession
@@ -126,7 +133,7 @@ startSession host port user pass = withSocketsDo $ do
   -- Keep session alive
   pingThread <- forkIO $ forever $ do
     threadDelay $ actualSessionDuration * 500 * 1000
-    sendRequestAsyncRaw sock invokeId
+    sendRequestAsyncRaw lopts sock invokeId
       $ Rq.ResetApplicationSessionTimer
             { sessionId = sessionID
             , requestedSessionDuration = actualSessionDuration
@@ -166,19 +173,23 @@ sendRequestSync (CSTAHandle{..}) rq = do
     modifyTVar' syncResponses (IntMap.insert ix var)
     return (ix,var)
   -- FIXME: handle error
-  Raw.sendRequest socket ix rq
+  Raw.sendRequest loggingOptions socket ix rq
   atomically $ takeTMVar var
 
 
 sendRequestAsync :: CSTAHandle -> Request -> IO ()
 sendRequestAsync (CSTAHandle{..}) rq =
-  sendRequestAsyncRaw socket invokeId rq
+  sendRequestAsyncRaw loggingOptions socket invokeId rq
 
 
-sendRequestAsyncRaw :: Handle -> TVar Int -> Request -> IO ()
-sendRequestAsyncRaw sock invoke rq = do
+sendRequestAsyncRaw :: Maybe LoggingOptions
+                    -> Handle
+                    -> TVar Int
+                    -> Request
+                    -> IO ()
+sendRequestAsyncRaw lopts sock invoke rq = do
   ix <- atomically $ do
     modifyTVar' invoke ((`mod` 9999).(+1))
     readTVar invoke
   -- FIXME: handle error
-  Raw.sendRequest sock ix rq
+  Raw.sendRequest lopts sock ix rq
