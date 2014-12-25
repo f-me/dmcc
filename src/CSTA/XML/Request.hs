@@ -55,6 +55,16 @@ data Request
     ,callId :: CallId
     ,acceptedProtocol :: Text
     }
+  | HoldCall
+    {deviceId :: DeviceId
+    ,callId :: CallId
+    ,acceptedProtocol :: Text
+    }
+  | RetrieveCall
+    {deviceId :: DeviceId
+    ,callId :: CallId
+    ,acceptedProtocol :: Text
+    }
   | ClearConnection
     {deviceId :: DeviceId
     ,callId :: CallId
@@ -189,6 +199,20 @@ toXml rq = renderLBS def $ case rq of
         <callID>#{toText callId}
       |]
 
+  HoldCall{..}
+    -> doc "HoldCall" acceptedProtocol [xml|
+      <callToBeHeld>
+        <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
+        <callID>#{toText callId}
+      |]
+
+  RetrieveCall{..}
+    -> doc "RetrieveCall" acceptedProtocol [xml|
+      <callToBeRetrieved>
+        <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
+        <callID>#{toText callId}
+      |]
+
   ClearConnection{..}
     -> doc "ClearConnection" acceptedProtocol [xml|
       <connectionToBeCleared>
@@ -211,6 +235,8 @@ toXml rq = renderLBS def $ case rq of
           <connectionCleared>true
           <delivered>true
           <established>true
+          <held>true
+          <retrieved>true
       <extensions>
         <privateData>
           <private>

@@ -40,6 +40,8 @@ import qualified CSTA.XML.Response as Rs
 data Action = MakeCall{number :: Extension}
             | AnswerCall{callId :: CallId}
             | EndCall{callId :: CallId}
+            | HoldCall{callId :: CallId}
+            | RetrieveCall{callId :: CallId}
             deriving Show
 
 
@@ -205,6 +207,10 @@ controlAgent switch ext as = do
 -- | Translate agent actions into actual CSTA API requests.
 processAgentAction :: AgentId -> DeviceId -> Session -> Action -> IO ()
 processAgentAction (AgentId (switch, _)) device as action =
+  let
+    simpleRequest rq cid =
+      sendRequestAsync (avayaHandle as) $ rq device cid (protocolVersion as)
+  in
   case action of
     MakeCall toNumber -> do
       rspDest <-
@@ -219,18 +225,10 @@ processAgentAction (AgentId (switch, _)) device as action =
         device
         (Rs.device rspDest)
         (protocolVersion as)
-    AnswerCall callId ->
-      sendRequestAsync (avayaHandle as) $
-        Rq.AnswerCall
-        device
-        callId
-        (protocolVersion as)
-    EndCall callId ->
-      sendRequestAsync (avayaHandle as) $
-        Rq.ClearConnection
-        device
-        callId
-        (protocolVersion as)
+    AnswerCall callId   -> simpleRequest Rq.AnswerCall callId
+    HoldCall callId     -> simpleRequest Rq.HoldCall callId
+    RetrieveCall callId -> simpleRequest Rq.RetrieveCall callId
+    EndCall callId      -> simpleRequest Rq.ClearConnection callId
 
 
 -- | Process CSTA API events for this agent to change its state and
@@ -241,6 +239,23 @@ processAgentEvent :: DeviceId
                   -> Rs.Event
                   -> IO ()
 processAgentEvent device state eventChan ev = do
+  let
+    -- | Atomically modify one of the calls.
+    callOperation :: CallId
+                  -- ^ CallId to find in calls map
+                  -> (Call -> Map.Map CallId Call -> Map.Map CallId Call)
+                  -- ^ How to modify calls map if the call has been found
+                  -> String
+                  -- ^ Error message if no such call found
+                  -> STM ()
+    callOperation callId callMod err =
+        modifyTVar state $
+          \m ->
+            case Map.lookup callId (_calls m) of
+              Just call ->
+                m & calls %~ (callMod call)
+              Nothing ->
+                error err
   now <- getCurrentTime
   atomically $ do
     case ev of
@@ -249,18 +264,26 @@ processAgentEvent device state eventChan ev = do
         let (dir, interloc) = if callingDevice == device
                               then (Out, calledDevice)
                               else (In, callingDevice)
-            call = Call dir now interloc Nothing
+            call = Call dir now interloc Nothing False
         modifyTVar state (calls %~ Map.insert callId call)
-      Rs.EstablishedEvent{..} -> do
-        modifyTVar state $
-          \m ->
-            case Map.lookup callId (_calls m) of
-              Just call ->
-                m & calls %~ Map.insert callId call{answered = Just now}
-              Nothing ->
-                error "Established connection to undelivered call"
-      Rs.ConnectionClearedEvent{..} -> do
+      Rs.EstablishedEvent{..} ->
+        callOperation callId
+        (\call -> Map.insert callId call{answered = Just now}) $
+        "Established connection to undelivered call"
+      -- ConnectionCleared event arrives when line is put on HOLD too.
+      -- A real call-ending ConnectionCleared is distinguished by its
+      -- releasingDevice value.
+      Rs.ConnectionClearedEvent{..} ->
+        when (releasingDevice == device) $
         modifyTVar state $ (calls %~ at callId .~ Nothing)
+      Rs.HeldEvent{..} ->
+        callOperation callId
+        (\call -> Map.insert callId call{held = True}) $
+        "Held undelivered call"
+      Rs.RetrievedEvent{..} ->
+        callOperation callId
+        (\call -> Map.insert callId call{held = False}) $
+        "Retrieved undelivered call"
       Rs.UnknownEvent -> return ()
     s <- readTVar state
     writeTChan eventChan $ Event ev s

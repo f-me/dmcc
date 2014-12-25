@@ -69,6 +69,7 @@ data Call = Call
   , start :: UTCTime
   , interlocutor :: DeviceId
   , answered :: Maybe UTCTime
+  , held :: Bool
   }
   deriving Show
 

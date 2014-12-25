@@ -61,6 +61,12 @@ data Event =
   | EstablishedEvent
     {callId :: CallId}
   | ConnectionClearedEvent
+    { callId :: CallId
+    , releasingDevice :: DeviceId
+    }
+  | HeldEvent
+    {callId :: CallId}
+  | RetrievedEvent
     {callId :: CallId}
   deriving Show
 
@@ -114,11 +120,28 @@ fromXml xml
                CallId $ textFromPath cur "establishedConnection" ["callId"]
              }
 
+        "HeldEvent"
+          -> EventResponse (text cur "monitorCrossRefID") $
+             HeldEvent
+             { callId =
+               CallId $ textFromPath cur "heldConnection" ["callId"]
+             }
+
+        "RetrievedEvent"
+          -> EventResponse (text cur "monitorCrossRefID") $
+             RetrievedEvent
+             { callId =
+               CallId $ textFromPath cur "retrievedConnection" ["callId"]
+             }
+
         "ConnectionClearedEvent"
           -> EventResponse (text cur "monitorCrossRefID") $
              ConnectionClearedEvent
              { callId =
                CallId $ textFromPath cur "droppedConnection" ["callId"]
+             , releasingDevice =
+               DeviceId $ mk $
+               textFromPath cur "releasingDevice" ["deviceIdentifier"]
              }
 
         _ -> UnknownResponse xml
