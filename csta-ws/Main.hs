@@ -99,6 +99,8 @@ avayaApplication cfg as pending = do
       -- Assume that all agents are on the same switch
       ah <- controlAgent (aesSwitch cfg) (Extension ext) as
       syslog Debug $ "Controlling agent " ++ show ah
+      s <- getAgentState ah
+      sendTextData conn $ encode s
       -- Event/action loops
       evThread <- handleEvents ah $
         (\ev ->
