@@ -31,6 +31,8 @@ import           System.Environment
 import           System.Exit
 import           System.Posix.Syslog
 import           System.Posix.Signals
+import           System.Random
+import           Text.Printf
 
 import           CSTA
 
@@ -93,33 +95,36 @@ avayaApplication cfg as pending = do
       pathArg = map (liftM fst . B.readInt) $ B.split '/' $ requestPath rq
   case pathArg of
     [Nothing, Just ext] -> do
+      -- Somewhat unique label for this connection
+      token <- randomRIO (1, 16 ^ (4 :: Int))
+      let label = printf "%d/%04x" ext (token :: Int)
       conn <- acceptRequest pending
-      syslog Debug $ "New websocket opened for " ++ show ext
+      syslog Debug $ "New websocket opened for " ++ label
       forkPingThread conn 30
       -- Assume that all agents are on the same switch
       ah <- controlAgent (aesSwitch cfg) (Extension ext) as
-      syslog Debug $ "Controlling agent " ++ show ah
+      syslog Debug $ "Controlling agent " ++ show ah ++ " from " ++ label
       s <- getAgentState ah
       sendTextData conn $ encode s
       -- Event/action loops
-      evThread <- handleEvents ah $
+      evThread <- handleEvents ah
         (\ev ->
            do
-             syslog Debug ("Event for " ++ show ext ++ ": " ++ show ev)
+             syslog Debug ("Event for " ++ label ++ ": " ++ show ev)
              sendTextData conn $ encode ev)
       handle
         (\e ->
            do
              killThread evThread
-             syslog Debug ("Exception for " ++ show ext ++ ": " ++
+             syslog Debug ("Exception for " ++ label ++ ": " ++
                            show (e :: ConnectionException))) $
         forever $ do
           msg <- receiveData conn
           case decode msg of
             Just act -> do
-              syslog Debug $ "Action from " ++ show ext ++ ": " ++ show act
+              syslog Debug $ "Action from " ++ label ++ ": " ++ show act
               agentAction act ah
             _ -> syslog Debug $
-                 "Unrecognized message from " ++ show ext ++ ": " ++
+                 "Unrecognized message from " ++ label ++ ": " ++
                  BL.unpack msg
     _ -> rejectRequest pending "Malformed extension number"
