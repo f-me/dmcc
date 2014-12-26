@@ -42,6 +42,7 @@ data Action = MakeCall{number :: Extension}
             | EndCall{callId :: CallId}
             | HoldCall{callId :: CallId}
             | RetrieveCall{callId :: CallId}
+            | SendDigits{callId :: CallId, digits :: Text}
             deriving Show
 
 
@@ -229,6 +230,11 @@ processAgentAction (AgentId (switch, _)) device as action =
     HoldCall callId     -> simpleRequest Rq.HoldCall callId
     RetrieveCall callId -> simpleRequest Rq.RetrieveCall callId
     EndCall callId      -> simpleRequest Rq.ClearConnection callId
+    -- Synchronous to avoid missed digits if actions queue up
+    SendDigits{..}  ->
+      void $
+      sendRequestSync (avayaHandle as) $
+      Rq.GenerateDigits digits device callId (protocolVersion as)
 
 
 -- | Process CSTA API events for this agent to change its state and

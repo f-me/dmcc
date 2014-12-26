@@ -65,6 +65,12 @@ data Request
     ,callId :: CallId
     ,acceptedProtocol :: Text
     }
+  | GenerateDigits
+    {charactersToSend :: Text
+    ,deviceId :: DeviceId
+    ,callId :: CallId
+    ,acceptedProtocol :: Text
+    }
   | ClearConnection
     {deviceId :: DeviceId
     ,callId :: CallId
@@ -211,6 +217,14 @@ toXml rq = renderLBS def $ case rq of
       <callToBeRetrieved>
         <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
         <callID>#{toText callId}
+      |]
+
+  GenerateDigits{..}
+    -> doc "GenerateDigits" acceptedProtocol [xml|
+      <connectionToSendDigits>
+        <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
+        <callID>#{toText callId}
+      <charactersToSend>#{charactersToSend}
       |]
 
   ClearConnection{..}
