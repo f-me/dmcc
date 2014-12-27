@@ -163,7 +163,7 @@ controlAgent switch ext as = do
                 (throwIO (e :: IOException))) $
       do
         Rs.GetDeviceIdResponse{..} <-
-          sendRequestSync (avayaHandle as) $
+          sendRequestSync (cstaHandle as) $
           Rq.GetDeviceId
           { switchName = switch
           , extension = ext
@@ -188,7 +188,7 @@ controlAgent switch ext as = do
 
 
         Rs.MonitorStartResponse{..} <-
-          sendRequestSync (avayaHandle as) $
+          sendRequestSync (cstaHandle as) $
           Rq.MonitorStart
           { deviceObject = device
           , acceptedProtocol = protocolVersion as
@@ -211,7 +211,7 @@ controlAgent switch ext as = do
 processAgentAction :: AgentId -> DeviceId -> Session -> Action -> IO ()
 processAgentAction (AgentId (switch, _)) device as action =
   let
-    arq = sendRequestAsync (avayaHandle as)
+    arq = sendRequestAsync (cstaHandle as)
     simpleRequest rq cid =
       arq $ rq device cid (protocolVersion as)
     simpleRequest2 rq cid1 cid2 =
@@ -220,13 +220,13 @@ processAgentAction (AgentId (switch, _)) device as action =
   case action of
     MakeCall toNumber -> do
       rspDest <-
-        sendRequestSync (avayaHandle as) $
+        sendRequestSync (cstaHandle as) $
         Rq.GetThirdPartyDeviceId
         -- Assume destination switch is the same as agent's
         { switchName = switch
         , extension = toNumber
         }
-      sendRequestAsync (avayaHandle as) $
+      sendRequestAsync (cstaHandle as) $
         Rq.MakeCall
         device
         (Rs.device rspDest)
@@ -242,7 +242,7 @@ processAgentAction (AgentId (switch, _)) device as action =
     -- Synchronous to avoid missed digits if actions queue up
     SendDigits{..}  ->
       void $
-      sendRequestSync (avayaHandle as) $
+      sendRequestSync (cstaHandle as) $
       Rq.GenerateDigits digits device callId (protocolVersion as)
 
 
@@ -325,12 +325,12 @@ releaseAgent (aid, as) = do
                 releaseAgentLock (aid, as) >>
                 (throwIO (e :: IOException))) $
       do
-        sendRequestSync (avayaHandle as) $
+        sendRequestSync (cstaHandle as) $
           Rq.MonitorStop
           { acceptedProtocol = protocolVersion as
           , monitorCrossRefID = monitorId ag
           }
-        sendRequestSync (avayaHandle as) $
+        sendRequestSync (cstaHandle as) $
           Rq.ReleaseDeviceId{device = deviceId ag}
         killThread (actionThread ag)
         atomically $ modifyTVar' (agents as) (Map.delete aid)

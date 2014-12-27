@@ -1,6 +1,10 @@
 Name:                csta
 Version:             0.1
 Synopsis:            CSTA XML API implementation and WebSockets server
+
+Description:         Partial implementation of CSTA Phase III XML Protocol
+                     (ECMA-323) with AVAYA (DMCC 6.3) extensions.
+
 Homepage:            https://github.com/f-me/csta
 License:             BSD3
 License-file:        LICENSE

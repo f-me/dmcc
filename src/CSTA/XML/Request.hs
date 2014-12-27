@@ -23,108 +23,109 @@ import           CSTA.Types
 
 data Request
   = StartApplicationSession
-    {applicationId :: Text
-    ,requestedProtocolVersion :: ProtocolVersion
-    ,userName :: Text
-    ,password :: Text
-    ,sessionCleanupDelay :: Int
-    ,requestedSessionDuration :: Int
+    { applicationId :: Text
+    , requestedProtocolVersion :: ProtocolVersion
+    , userName :: Text
+    , password :: Text
+    , sessionCleanupDelay :: Int
+    , requestedSessionDuration :: Int
     }
   | StopApplicationSession
-    {sessionID :: Text
+    { sessionID :: Text
     }
   | ResetApplicationSessionTimer
-    {sessionId :: Text
-    ,requestedSessionDuration :: Int
+    { sessionId :: Text
+    , requestedSessionDuration :: Int
     }
   | GetDeviceId
-    {switchName :: SwitchName
-    ,extension :: Extension
+    { switchName :: SwitchName
+    , extension :: Extension
     }
   | GetThirdPartyDeviceId
-    {switchName :: SwitchName
-    ,extension :: Extension
+    { switchName :: SwitchName
+    , extension :: Extension
     }
   | MakeCall
-    {callingDevice :: DeviceId
-    ,calledDirectoryNumber :: DeviceId
-    ,acceptedProtocol :: Text
+    { callingDevice :: DeviceId
+    , calledDirectoryNumber :: DeviceId
+    , acceptedProtocol :: Text
     }
   | AnswerCall
-    {deviceId :: DeviceId
-    ,callId :: CallId
-    ,acceptedProtocol :: Text
+    { deviceId :: DeviceId
+    , callId :: CallId
+    , acceptedProtocol :: Text
     }
   | HoldCall
-    {deviceId :: DeviceId
-    ,callId :: CallId
-    ,acceptedProtocol :: Text
+    { deviceId :: DeviceId
+    , callId :: CallId
+    , acceptedProtocol :: Text
     }
   | RetrieveCall
-    {deviceId :: DeviceId
-    ,callId :: CallId
-    ,acceptedProtocol :: Text
+    { deviceId :: DeviceId
+    , callId :: CallId
+    , acceptedProtocol :: Text
     }
   | GenerateDigits
-    {charactersToSend :: Text
-    ,deviceId :: DeviceId
-    ,callId :: CallId
-    ,acceptedProtocol :: Text
+    { charactersToSend :: Text
+    , deviceId :: DeviceId
+    , callId :: CallId
+    , acceptedProtocol :: Text
     }
   | ConferenceCall
-    {deviceId :: DeviceId
-    ,activeCall :: CallId
-    ,heldCall :: CallId
-    ,acceptedProtocol :: Text
+    { deviceId :: DeviceId
+    , activeCall :: CallId
+    , heldCall :: CallId
+    , acceptedProtocol :: Text
     }
   | TransferCall
-    {deviceId :: DeviceId
-    ,activeCall :: CallId
-    ,heldCall :: CallId
-    ,acceptedProtocol :: Text
+    { deviceId :: DeviceId
+    , activeCall :: CallId
+    , heldCall :: CallId
+    , acceptedProtocol :: Text
     }
   | ClearConnection
-    {deviceId :: DeviceId
-    ,callId :: CallId
-    ,acceptedProtocol :: Text
+    { deviceId :: DeviceId
+    , callId :: CallId
+    , acceptedProtocol :: Text
     }
   | ReleaseDeviceId
-    {device :: DeviceId
+    { device :: DeviceId
     }
   | MonitorStart
-    {acceptedProtocol :: Text
-    ,deviceObject :: DeviceId
+    { acceptedProtocol :: Text
+    , deviceObject :: DeviceId
     }
   | MonitorStop
-    {acceptedProtocol :: Text
-    ,monitorCrossRefID :: Text
+    { acceptedProtocol :: Text
+    , monitorCrossRefID :: Text
     }
   deriving Show
 
-data ProtocolVersion
-  = V3_0 | V3_1
-  | V4_0 | V4_1 | V4_2
-  | V5_2
-  | V6_1
-  deriving Show
+
+data ProtocolVersion = DMCC_4_2 | DMCC_6_1 | DMCC_6_2 | DMCC_6_3
+                       deriving Show
+
 
 getProtocolString :: ProtocolVersion -> Text
 getProtocolString ver
   = case ver of
-    V3_0 -> "3.0"
-    V3_1 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed2/priv1"
-    V4_0 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv1"
-    V4_1 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv2"
-    V4_2 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv3"
-    V5_2 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv4"
-    V6_1 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv5"
+    DMCC_4_2 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv3"
+    DMCC_6_1 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv5"
+    DMCC_6_2 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv6"
+    DMCC_6_3 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv7"
+
 
 nsAppSession :: Text
 nsAppSession = "http://www.ecma-international.org/standards/ecma-354/appl_session"
+
+
 nsXSI :: Text
 nsXSI = "http://www.w3.org/2001/XMLSchema-instance"
-nsCSTA :: Text
-nsCSTA = "http://www.avaya.com/csta"
+
+
+nsACX :: Text
+nsACX = "http://www.avaya.com/csta"
+
 
 doc :: Name -> Text -> [Node] -> Document
 doc name xmlns nodes = Document
@@ -132,7 +133,10 @@ doc name xmlns nodes = Document
   (Element
     name
     (Map.fromList
-      [("xmlns",xmlns),("xmlns:xsi",nsXSI),("xmlns:csta",nsCSTA)])
+      [ ("xmlns", xmlns)
+      , ("xmlns:xsi", nsXSI)
+      , ("xmlns:acx", nsACX)
+      ])
     nodes)
   []
 
@@ -169,10 +173,10 @@ toXml rq = renderLBS def $ case rq of
       <applicationInfo>
         <applicationID>#{applicationId}
         <applicationSpecificInfo>
-          <csta:SessionLoginInfo xsi:type="csta:SessionLoginInfo">
-            <csta:userName>#{userName}
-            <csta:password>#{password}
-            <csta:sessionCleanupDelay>#{T.pack $ show sessionCleanupDelay}
+          <acx:SessionLoginInfo xsi:type="acx:SessionLoginInfo">
+            <acx:userName>#{userName}
+            <acx:password>#{password}
+            <acx:sessionCleanupDelay>#{T.pack $ show sessionCleanupDelay}
       <requestedProtocolVersions>
         <protocolVersion>#{getProtocolString requestedProtocolVersion}
       <requestedSessionDuration>#{T.pack $ show requestedSessionDuration}
@@ -192,14 +196,14 @@ toXml rq = renderLBS def $ case rq of
       |]
 
   GetDeviceId{..}
-    -> doc "GetDeviceId" nsCSTA [xml|
+    -> doc "GetDeviceId" nsACX [xml|
       <switchName>#{toText switchName}
       <extension>#{toText extension}
       <controllableByOtherSessions>true
       |]
 
   GetThirdPartyDeviceId{..}
-    -> doc "GetThirdPartyDeviceId" nsCSTA [xml|
+    -> doc "GetThirdPartyDeviceId" nsACX [xml|
       <switchName>#{toText switchName}
       <extension>#{toText extension}
       |]
@@ -267,7 +271,7 @@ toXml rq = renderLBS def $ case rq of
       |]
 
   ReleaseDeviceId{..}
-    -> doc "ReleaseDeviceId" nsCSTA [xml|
+    -> doc "ReleaseDeviceId" nsACX [xml|
       <device>#{toText device}
       |]
 

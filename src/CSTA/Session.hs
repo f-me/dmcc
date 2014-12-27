@@ -51,7 +51,7 @@ data Session = Session
   , pingThread :: ThreadId
   , protocolVersion :: Text
   -- ^ Action worker thread.
-  , avayaHandle :: CSTAHandle
+  , cstaHandle :: CSTAHandle
   , agents :: TVar (Map.Map AgentId Agent)
   , agentLocks :: TVar (Set.Set AgentId)
   }
@@ -123,7 +123,7 @@ startSession host port user pass lopts = withSocketsDo $ do
   Rs.StartApplicationSessionPosResponse{..} <- sendRequestSync h
     $ Rq.StartApplicationSession
       { applicationId = ""
-      , requestedProtocolVersion = Rq.V4_2
+      , requestedProtocolVersion = Rq.DMCC_4_2
       , userName = user
       , password = pass
       , sessionCleanupDelay = 80
@@ -156,12 +156,12 @@ stopSession as@(Session{..}) = do
   ags <- readTVarIO agents
   mapM_ releaseAgent $ zip (Map.keys ags) (repeat as)
 
-  sendRequestAsync avayaHandle $
+  sendRequestAsync cstaHandle $
     Rq.StopApplicationSession{sessionID = sessionId}
   killThread pingThread
-  killThread $ procThread avayaHandle
-  killThread $ readThread avayaHandle
-  hClose $ socket avayaHandle
+  killThread $ procThread cstaHandle
+  killThread $ readThread cstaHandle
+  hClose $ socket cstaHandle
 
 
 sendRequestSync :: CSTAHandle -> Request -> IO Response
