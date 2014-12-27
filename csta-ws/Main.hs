@@ -27,6 +27,7 @@ import qualified Data.Configurator as Cfg
 import           Data.Text (Text)
 
 import           Network.WebSockets
+
 import           System.Environment
 import           System.Exit
 import           System.Posix.Syslog
@@ -42,9 +43,11 @@ data Config =
   { listenPort :: Int
   , aesAddr    :: String
   , aesPort    :: Int
-  , aesUser    :: Text
-  , aesPass    :: Text
-  , aesSwitch  :: SwitchName
+  , aesTLS     :: Bool
+  , caDir      :: Maybe FilePath
+  , apiUser    :: Text
+  , apiPass    :: Text
+  , switchName :: SwitchName
   , logLibrary :: Bool
   }
   deriving Show
@@ -72,14 +75,18 @@ realMain config = do
       <$> Cfg.require c "listen-port"
       <*> Cfg.require c "aes-addr"
       <*> Cfg.require c "aes-port"
-      <*> Cfg.require c "aes-user"
-      <*> Cfg.require c "aes-pass"
-      <*> (SwitchName <$> Cfg.require c "aes-switch")
+      <*> Cfg.lookupDefault True c "aes-use-tls"
+      <*> Cfg.lookup  c "aes-cacert-directory"
+      <*> Cfg.require c "api-user"
+      <*> Cfg.require c "api-pass"
+      <*> (SwitchName <$> Cfg.require c "switch-name")
       <*> Cfg.require c "log-library"
 
   bracket
     (syslog Info ("Starting session using " ++ show cfg) >>
-     startSession aesAddr aesPort aesUser aesPass
+     startSession aesAddr (fromIntegral aesPort)
+     (if aesTLS then (TLS caDir) else Plain)
+     apiUser apiPass
      (if logLibrary then Just defaultLoggingOptions else Nothing))
     (\s ->
        syslog Info ("Stopping " ++ show s) >>
@@ -102,7 +109,7 @@ avayaApplication cfg as pending = do
       syslog Debug $ "New websocket opened for " ++ label
       forkPingThread conn 30
       -- Assume that all agents are on the same switch
-      ah <- controlAgent (aesSwitch cfg) (Extension ext) as
+      ah <- controlAgent (switchName cfg) (Extension ext) as
       syslog Debug $ "Controlling agent " ++ show ah ++ " from " ++ label
       s <- getAgentState ah
       sendTextData conn $ encode s

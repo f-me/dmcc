@@ -8,14 +8,11 @@
 CSTA XML API implementation for third party call control and
 monitoring.
 
-TODO:
-
-- Logging
-
 -}
 
 module CSTA
   ( Session
+  , ConnectionType(..)
   , startSession
   , stopSession
   , defaultLoggingOptions

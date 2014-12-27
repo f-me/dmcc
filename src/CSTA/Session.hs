@@ -13,14 +13,22 @@ import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
 
+import           Data.ByteString (ByteString)
 import           Data.List
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.IntMap.Strict as IntMap
 import           Data.Text (Text, unpack)
 
-import           System.IO
+import           System.IO.Streams (InputStream, OutputStream, write)
+import           System.IO.Streams.Handle
+import qualified System.IO.Streams.SSL as SSLStreams
+
 import           Network
+import           Network.Socket
+import           OpenSSL
+import qualified OpenSSL.Session as SSL
+import           System.IO
 
 import           CSTA.Types
 import           CSTA.XML.Request (Request)
@@ -32,16 +40,22 @@ import qualified CSTA.XML.Raw as Raw
 import {-# SOURCE #-} CSTA.Agent
 
 
+data ConnectionType = Plain
+                    | TLS { caDir :: Maybe FilePath }
+
+
 -- | Low-level AES API plumbing.
 data CSTAHandle = CSTAHandle
-  { socket :: Handle
+  { streams :: (InputStream ByteString, OutputStream ByteString)
+  , cleanup :: IO ()
+  -- ^ Properly close underlying connection.
   , readThread :: ThreadId
-    -- ^ CSTA response reader thread.
+  -- ^ CSTA response reader thread.
   , procThread :: ThreadId
-    -- ^ Response handler/synchronous requests worker thread.
+  -- ^ Response handler/synchronous requests worker thread.
   , syncResponses :: TVar (IntMap.IntMap (TMVar Response))
   , invokeId :: TVar Int
-    -- ^ Request/response counter.
+  -- ^ Request/response counter.
   , loggingOptions :: Maybe LoggingOptions
   }
 
@@ -72,27 +86,47 @@ data LoopEvent
   deriving Show
 
 
-
 defaultLoggingOptions :: LoggingOptions
-defaultLoggingOptions = LoggingOptions "csta-lib" False
+defaultLoggingOptions = LoggingOptions "csta-lib"
 
 
 --FIXME: handle network errors
 startSession :: String
-             -> Int
+             -> PortNumber
+             -> ConnectionType
+             -- ^ Use TLS.
              -> Text
              -> Text
              -> Maybe LoggingOptions
              -> IO Session
-startSession host port user pass lopts = withSocketsDo $ do
-  sock <- connectTo host (PortNumber $ fromIntegral port)
-  hSetBuffering sock NoBuffering
+startSession host port conn user pass lopts = withOpenSSL $ do
+  (istream, ostream, cl) <-
+    case conn of
+      Plain -> do
+        handle <- connectTo host (PortNumber $ fromIntegral port)
+        hSetBuffering handle NoBuffering
+        is <- handleToInputStream handle
+        os <- handleToOutputStream handle
+        let cl = hClose handle
+        return (is, os, cl)
+      TLS caDir -> do
+        sslCtx <- SSL.context
+        SSL.contextSetDefaultCiphers sslCtx
+        SSL.contextSetVerificationMode sslCtx $
+          SSL.VerifyPeer True True Nothing
+        maybe (return ()) (SSL.contextSetCADirectory sslCtx) caDir
+        (is, os, ssl) <- SSLStreams.connect sslCtx host port
+        let cl =
+              do
+                SSL.shutdown ssl SSL.Unidirectional
+                maybe (return ()) close $ SSL.sslSocket ssl
+        return (is, os, cl)
 
   -- Request/response plumbing
   msgChan <- newTChanIO
   readThread <-
     forkIO $ forever $
-    Raw.readResponse lopts sock >>=
+    Raw.readResponse lopts istream >>=
     atomically . writeTChan msgChan . first CSTARsp
 
   syncResponses <- newTVarIO IntMap.empty
@@ -118,7 +152,14 @@ startSession host port user pass lopts = withSocketsDo $ do
 
   invokeId <- newTVarIO 0
   agLocks <- newTVarIO Set.empty
-  let h = CSTAHandle sock readThread procThread syncResponses invokeId lopts
+  let h = CSTAHandle
+          (istream, ostream)
+          cl
+          readThread
+          procThread
+          syncResponses
+          invokeId
+          lopts
 
   Rs.StartApplicationSessionPosResponse{..} <- sendRequestSync h
     $ Rq.StartApplicationSession
@@ -133,7 +174,7 @@ startSession host port user pass lopts = withSocketsDo $ do
   -- Keep session alive
   pingThread <- forkIO $ forever $ do
     threadDelay $ actualSessionDuration * 500 * 1000
-    sendRequestAsyncRaw lopts sock invokeId
+    sendRequestAsyncRaw lopts ostream invokeId
       $ Rq.ResetApplicationSessionTimer
             { sessionId = sessionID
             , requestedSessionDuration = actualSessionDuration
@@ -161,7 +202,8 @@ stopSession as@(Session{..}) = do
   killThread pingThread
   killThread $ procThread cstaHandle
   killThread $ readThread cstaHandle
-  hClose $ socket cstaHandle
+  write Nothing (snd $ streams $ cstaHandle)
+  cleanup cstaHandle
 
 
 sendRequestSync :: CSTAHandle -> Request -> IO Response
@@ -173,23 +215,23 @@ sendRequestSync (CSTAHandle{..}) rq = do
     modifyTVar' syncResponses (IntMap.insert ix var)
     return (ix,var)
   -- FIXME: handle error
-  Raw.sendRequest loggingOptions socket ix rq
+  Raw.sendRequest loggingOptions (snd streams) ix rq
   atomically $ takeTMVar var
 
 
 sendRequestAsync :: CSTAHandle -> Request -> IO ()
 sendRequestAsync (CSTAHandle{..}) rq =
-  sendRequestAsyncRaw loggingOptions socket invokeId rq
+  sendRequestAsyncRaw loggingOptions (snd streams) invokeId rq
 
 
 sendRequestAsyncRaw :: Maybe LoggingOptions
-                    -> Handle
+                    -> OutputStream ByteString
                     -> TVar Int
                     -> Request
                     -> IO ()
-sendRequestAsyncRaw lopts sock invoke rq = do
+sendRequestAsyncRaw lopts ostream invoke rq = do
   ix <- atomically $ do
     modifyTVar' invoke ((`mod` 9999).(+1))
     readTVar invoke
   -- FIXME: handle error
-  Raw.sendRequest lopts sock ix rq
+  Raw.sendRequest lopts ostream ix rq

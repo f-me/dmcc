@@ -23,7 +23,8 @@ import qualified Data.ByteString.Char8 as S
 import qualified Data.ByteString.Lazy  as L
 import qualified Data.ByteString.Lazy.Char8  as L8
 
-import           System.IO
+import           System.IO.Streams (InputStream, OutputStream)
+import qualified System.IO.Streams as Streams
 import           System.Posix.Syslog
 
 import           Text.Printf
@@ -40,7 +41,11 @@ maybeSyslog (Just LoggingOptions{..}) pri msg =
 
 
 -- FIXME: error
-sendRequest :: Maybe LoggingOptions -> Handle -> Int -> Request -> IO ()
+sendRequest :: Maybe LoggingOptions
+            -> OutputStream S.ByteString
+            -> Int
+            -> Request
+            -> IO ()
 sendRequest lopts h ix rq =
   let
     rawRequest = toXml rq
@@ -49,7 +54,7 @@ sendRequest lopts h ix rq =
       maybeSyslog lopts Debug $
         "Sending request (invokeId=" ++ show ix ++ ") " ++
         (show $ L8.unpack rawRequest)
-      L.hPut h $ runPut $ do
+      flip Streams.writeLazyByteString h $ runPut $ do
         putWord16be 0
         putWord16be . fromIntegral $ 8 + L.length rawRequest
         let invokeId = S.pack . take 4 $ printf "%04d" ix
@@ -58,13 +63,19 @@ sendRequest lopts h ix rq =
 
 
 -- FIXME: error
-readResponse :: Maybe LoggingOptions -> Handle -> IO (Response, Int)
+readResponse :: Maybe LoggingOptions
+             -> InputStream S.ByteString
+             -> IO (Response, Int)
 readResponse lopts h = do
-  res <- try $ runGet readHeader <$> L.hGet h 8
+  -- xml-conduit parser requires a lazy ByteString
+  let readLazy i = do
+        v <- Streams.readExactly i h
+        return $ L.fromChunks [v]
+  res <- try $ runGet readHeader <$> readLazy 8
   case res of
     Left err -> fail $ "Header: " ++ show (err :: SomeException)
     Right (len, invokeId) -> do
-      resp <- L.hGet h (len - 8)
+      resp <- readLazy (len - 8)
       maybeSyslog lopts Debug $
         "Received response (invokeId=" ++ show invokeId ++ ") " ++
         (show $ L8.unpack resp)
