@@ -42,6 +42,8 @@ data Action = MakeCall{number :: Extension}
             | EndCall{callId :: CallId}
             | HoldCall{callId :: CallId}
             | RetrieveCall{callId :: CallId}
+            | ConferenceCall{activeCall :: CallId, heldCall :: CallId}
+            | TransferCall{activeCall :: CallId, heldCall :: CallId}
             | SendDigits{callId :: CallId, digits :: Text}
             deriving Show
 
@@ -209,8 +211,11 @@ controlAgent switch ext as = do
 processAgentAction :: AgentId -> DeviceId -> Session -> Action -> IO ()
 processAgentAction (AgentId (switch, _)) device as action =
   let
+    arq = sendRequestAsync (avayaHandle as)
     simpleRequest rq cid =
-      sendRequestAsync (avayaHandle as) $ rq device cid (protocolVersion as)
+      arq $ rq device cid (protocolVersion as)
+    simpleRequest2 rq cid1 cid2 =
+      arq $ rq device cid1 cid2 (protocolVersion as)
   in
   case action of
     MakeCall toNumber -> do
@@ -229,6 +234,10 @@ processAgentAction (AgentId (switch, _)) device as action =
     AnswerCall callId   -> simpleRequest Rq.AnswerCall callId
     HoldCall callId     -> simpleRequest Rq.HoldCall callId
     RetrieveCall callId -> simpleRequest Rq.RetrieveCall callId
+    ConferenceCall activeCall heldCall ->
+      simpleRequest2 Rq.ConferenceCall activeCall heldCall
+    TransferCall activeCall heldCall ->
+      simpleRequest2 Rq.TransferCall activeCall heldCall
     EndCall callId      -> simpleRequest Rq.ClearConnection callId
     -- Synchronous to avoid missed digits if actions queue up
     SendDigits{..}  ->

@@ -71,6 +71,18 @@ data Request
     ,callId :: CallId
     ,acceptedProtocol :: Text
     }
+  | ConferenceCall
+    {deviceId :: DeviceId
+    ,activeCall :: CallId
+    ,heldCall :: CallId
+    ,acceptedProtocol :: Text
+    }
+  | TransferCall
+    {deviceId :: DeviceId
+    ,activeCall :: CallId
+    ,heldCall :: CallId
+    ,acceptedProtocol :: Text
+    }
   | ClearConnection
     {deviceId :: DeviceId
     ,callId :: CallId
@@ -227,6 +239,26 @@ toXml rq = renderLBS def $ case rq of
       <charactersToSend>#{charactersToSend}
       |]
 
+  ConferenceCall{..}
+    -> doc "ConferenceCall" acceptedProtocol [xml|
+      <heldCall>
+        <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
+        <callID>#{toText heldCall}
+      <activeCall>
+        <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
+        <callID>#{toText activeCall}
+      |]
+
+  TransferCall{..}
+    -> doc "TransferCall" acceptedProtocol [xml|
+      <heldCall>
+        <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
+        <callID>#{toText heldCall}
+      <activeCall>
+        <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
+        <callID>#{toText activeCall}
+      |]
+
   ClearConnection{..}
     -> doc "ClearConnection" acceptedProtocol [xml|
       <connectionToBeCleared>
@@ -247,10 +279,12 @@ toXml rq = renderLBS def $ case rq of
       <requestedMonitorFilter>
         <callcontrol>
           <connectionCleared>true
+          <conferenced>true
           <delivered>true
           <established>true
           <held>true
           <retrieved>true
+          <transferred>true
       <extensions>
         <privateData>
           <private>
