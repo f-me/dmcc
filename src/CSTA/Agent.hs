@@ -279,12 +279,12 @@ processAgentEvent device state eventChan ev = do
         let (dir, interloc) = if callingDevice == device
                               then (Out, calledDevice)
                               else (In, callingDevice)
-            call = Call dir now interloc Nothing False
+            call = Call dir now [interloc] Nothing False
         modifyTVar state (calls %~ Map.insert callId call)
       Rs.EstablishedEvent{..} ->
         callOperation callId
         (\call -> Map.insert callId call{answered = Just now}) $
-        "Established connection to undelivered call"
+        "Established connection to an undelivered call"
       -- ConnectionCleared event arrives when line is put on HOLD too.
       -- A real call-ending ConnectionCleared is distinguished by its
       -- releasingDevice value.
@@ -294,11 +294,27 @@ processAgentEvent device state eventChan ev = do
       Rs.HeldEvent{..} ->
         callOperation callId
         (\call -> Map.insert callId call{held = True}) $
-        "Held undelivered call"
+        "Held an undelivered call"
       Rs.RetrievedEvent{..} ->
         callOperation callId
         (\call -> Map.insert callId call{held = False}) $
-        "Retrieved undelivered call"
+        "Retrieved an undelivered call"
+      -- Conferencing call A to call B yields ConferencedEvent with
+      -- primaryCall=B and secondaryCall=A, while call A dies.
+      Rs.ConferencedEvent prim sec -> do
+        s <- readTVar state
+        case (Map.lookup prim (_calls s), Map.lookup sec (_calls s)) of
+          (Just oldCall, Just newCall) -> do
+            modifyTVar state $ (calls %~ at prim .~ Nothing)
+            callOperation sec
+              (\call ->
+                 Map.insert sec call{interlocutors = interlocutors oldCall ++
+                                                     interlocutors newCall})
+              "Conferenced an undelivered call"
+          -- ConferencedEvent may also be produced after a new
+          -- established call (not caused by an actual conference user
+          -- request)
+          _ -> return ()
       Rs.UnknownEvent -> return ()
     s <- readTVar state
     writeTChan eventChan $ Event ev s

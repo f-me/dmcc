@@ -67,7 +67,7 @@ $(deriveToJSON defaultOptions ''CallDirection)
 data Call = Call
   { direction :: CallDirection
   , start :: UTCTime
-  , interlocutor :: DeviceId
+  , interlocutors :: [DeviceId]
   , answered :: Maybe UTCTime
   , held :: Bool
   }
