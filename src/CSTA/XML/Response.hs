@@ -72,6 +72,10 @@ data Event =
     { primaryOldCall :: CallId
     , secondaryOldCall :: CallId
     }
+  | TransferedEvent
+    { primaryOldCall :: CallId
+    , secondaryOldCall :: CallId
+    }
   deriving Show
 
 $(deriveToJSON
@@ -141,6 +145,15 @@ fromXml xml
         "ConferencedEvent"
           -> EventResponse (text cur "monitorCrossRefID") $
              ConferencedEvent
+             { primaryOldCall =
+               CallId $ textFromPath cur "primaryOldCall" ["callId"]
+             , secondaryOldCall =
+               CallId $ textFromPath cur "secondaryOldCall" ["callId"]
+             }
+
+        "TransferedEvent"
+          -> EventResponse (text cur "monitorCrossRefID") $
+             TransferedEvent
              { primaryOldCall =
                CallId $ textFromPath cur "primaryOldCall" ["callId"]
              , secondaryOldCall =

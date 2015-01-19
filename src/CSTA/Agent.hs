@@ -248,6 +248,8 @@ processAgentAction (AgentId (switch, _)) device as action =
 
 -- | Process CSTA API events for this agent to change its state and
 -- broadcast events further.
+--
+-- TODO Allow agents to control only own calls.
 processAgentEvent :: DeviceId
                   -> TVar AgentState
                   -> TChan Event
@@ -315,6 +317,9 @@ processAgentEvent device state eventChan ev = do
           -- established call (not caused by an actual conference user
           -- request)
           _ -> return ()
+      Rs.TransferedEvent prim sec -> do
+        modifyTVar state $ (calls %~ at prim .~ Nothing)
+        modifyTVar state $ (calls %~ at sec .~ Nothing)
       Rs.UnknownEvent -> return ()
     s <- readTVar state
     writeTChan eventChan $ Event ev s
