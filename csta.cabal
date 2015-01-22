@@ -23,7 +23,7 @@ Executable csta-ws
   Hs-source-dirs: csta-ws
   Main-is: Main.hs
 
-  ghc-options: -Wall -fno-warn-unused-do-bind
+  ghc-options: -Wall -fno-warn-unused-do-bind -threaded
 
   Extensions:
     OverloadedStrings,
@@ -64,7 +64,7 @@ Library
     CSTA.XML.Request
     CSTA.XML.Response
 
-  ghc-options: -Wall -fno-warn-unused-do-bind
+  ghc-options: -Wall -fno-warn-unused-do-bind -threaded
 
   Extensions:
     OverloadedStrings,
