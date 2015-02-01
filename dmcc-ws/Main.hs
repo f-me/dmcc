@@ -3,11 +3,11 @@
 
 {-|
 
-WebSockets interface for CSTA.
+WebSockets interface for DMCC.
 
 TODO:
 
-- Describe CSTA-WebSockets API
+- Describe DMCC-WebSockets API
 
 - Report agent state after handshake
 
@@ -35,7 +35,7 @@ import           System.Posix.Signals
 import           System.Random
 import           Text.Printf
 
-import           CSTA
+import           DMCC
 
 
 data Config =
@@ -55,7 +55,7 @@ data Config =
 
 main :: IO ()
 main = getArgs >>= \case
-  [config] -> withSyslog "csta-ws" [PID] USER (logUpTo Debug) $ do
+  [config] -> withSyslog "dmcc-ws" [PID] USER (logUpTo Debug) $ do
     this <- myThreadId
     -- Terminate on SIGTERM
     _ <- installHandler

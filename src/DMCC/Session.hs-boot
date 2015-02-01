@@ -1,4 +1,4 @@
-module CSTA.Session
+module DMCC.Session
 
 where
 

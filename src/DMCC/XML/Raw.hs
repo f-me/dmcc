@@ -1,9 +1,9 @@
 {-|
 
-CSTA request/response packet processing.
+DMCC request/response packet processing.
 
 
-CSTA header format:
+DMCC header format:
 
 @
 |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  | ...        |
@@ -12,7 +12,7 @@ CSTA header format:
 
 -}
 
-module CSTA.XML.Raw where
+module DMCC.XML.Raw where
 
 
 import           Control.Exception
@@ -29,9 +29,9 @@ import           System.Posix.Syslog
 
 import           Text.Printf
 
-import           CSTA.Types
-import           CSTA.XML.Request
-import           CSTA.XML.Response
+import           DMCC.Types
+import           DMCC.XML.Request
+import           DMCC.XML.Response
 
 
 maybeSyslog :: Maybe LoggingOptions -> Priority -> String -> IO ()

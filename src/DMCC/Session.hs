@@ -1,10 +1,10 @@
 {-|
 
-CSTA session handling.
+DMCC session handling.
 
 -}
 
-module CSTA.Session
+module DMCC.Session
 
 where
 
@@ -30,14 +30,14 @@ import           OpenSSL
 import qualified OpenSSL.Session as SSL
 import           System.IO
 
-import           CSTA.Types
-import           CSTA.XML.Request (Request)
-import qualified CSTA.XML.Request as Rq
-import           CSTA.XML.Response (Response)
-import qualified CSTA.XML.Response as Rs
-import qualified CSTA.XML.Raw as Raw
+import           DMCC.Types
+import           DMCC.XML.Request (Request)
+import qualified DMCC.XML.Request as Rq
+import           DMCC.XML.Response (Response)
+import qualified DMCC.XML.Response as Rs
+import qualified DMCC.XML.Raw as Raw
 
-import {-# SOURCE #-} CSTA.Agent
+import {-# SOURCE #-} DMCC.Agent
 
 
 data ConnectionType = Plain
@@ -45,12 +45,12 @@ data ConnectionType = Plain
 
 
 -- | Low-level AES API plumbing.
-data CSTAHandle = CSTAHandle
+data DMCCHandle = DMCCHandle
   { streams :: (InputStream ByteString, OutputStream ByteString)
   , cleanup :: IO ()
   -- ^ Properly close underlying connection.
   , readThread :: ThreadId
-  -- ^ CSTA response reader thread.
+  -- ^ DMCC response reader thread.
   , procThread :: ThreadId
   -- ^ Response handler/synchronous requests worker thread.
   , syncResponses :: TVar (IntMap.IntMap (TMVar Response))
@@ -65,7 +65,7 @@ data Session = Session
   , pingThread :: ThreadId
   , protocolVersion :: Text
   -- ^ Action worker thread.
-  , cstaHandle :: CSTAHandle
+  , dmccHandle :: DMCCHandle
   , agents :: TVar (Map.Map AgentId Agent)
   , agentLocks :: TVar (Set.Set AgentId)
   }
@@ -79,7 +79,7 @@ instance Show Session where
 
 
 data LoopEvent
-  = CSTARsp Response
+  = DMCCRsp Response
   | Timeout
   | ReadError
   | ShutdownRequested
@@ -87,7 +87,7 @@ data LoopEvent
 
 
 defaultLoggingOptions :: LoggingOptions
-defaultLoggingOptions = LoggingOptions "csta-lib"
+defaultLoggingOptions = LoggingOptions "dmcc-lib"
 
 
 --FIXME: handle network errors
@@ -127,7 +127,7 @@ startSession host port conn user pass lopts = withOpenSSL $ do
   readThread <-
     forkIO $ forever $
     Raw.readResponse lopts istream >>=
-    atomically . writeTChan msgChan . first CSTARsp
+    atomically . writeTChan msgChan . first DMCCRsp
 
   syncResponses <- newTVarIO IntMap.empty
   agents <- newTVarIO Map.empty
@@ -136,14 +136,14 @@ startSession host port conn user pass lopts = withOpenSSL $ do
     (msg, invokeId) <- atomically $ readTChan msgChan
     case msg of
       -- Redirect events to matching agent
-      (CSTARsp (Rs.EventResponse monId ev)) -> do
+      (DMCCRsp (Rs.EventResponse monId ev)) -> do
         -- TODO Check agent locks?
         ags <- readTVarIO agents
         case find (\a -> monId == monitorId a) $ Map.elems ags of
           Just ag -> atomically $ writeTChan (inputChan ag) ev
           -- Event received for unknown agent?
           Nothing -> return ()
-      CSTARsp rsp -> do
+      DMCCRsp rsp -> do
         syncs <- readTVarIO syncResponses
         case IntMap.lookup invokeId syncs of
           Nothing -> return ()
@@ -152,7 +152,7 @@ startSession host port conn user pass lopts = withOpenSSL $ do
 
   invokeId <- newTVarIO 0
   agLocks <- newTVarIO Set.empty
-  let h = CSTAHandle
+  let h = DMCCHandle
           (istream, ostream)
           cl
           readThread
@@ -197,17 +197,17 @@ stopSession as@(Session{..}) = do
   ags <- readTVarIO agents
   mapM_ releaseAgent $ zip (Map.keys ags) (repeat as)
 
-  sendRequestAsync cstaHandle $
+  sendRequestAsync dmccHandle $
     Rq.StopApplicationSession{sessionID = sessionId}
   killThread pingThread
-  killThread $ procThread cstaHandle
-  killThread $ readThread cstaHandle
-  write Nothing (snd $ streams $ cstaHandle)
-  cleanup cstaHandle
+  killThread $ procThread dmccHandle
+  killThread $ readThread dmccHandle
+  write Nothing (snd $ streams $ dmccHandle)
+  cleanup dmccHandle
 
 
-sendRequestSync :: CSTAHandle -> Request -> IO Response
-sendRequestSync (CSTAHandle{..}) rq = do
+sendRequestSync :: DMCCHandle -> Request -> IO Response
+sendRequestSync (DMCCHandle{..}) rq = do
   (ix,var) <- atomically $ do
     modifyTVar' invokeId ((`mod` 9999).(+1))
     ix <- readTVar invokeId
@@ -219,8 +219,8 @@ sendRequestSync (CSTAHandle{..}) rq = do
   atomically $ takeTMVar var
 
 
-sendRequestAsync :: CSTAHandle -> Request -> IO ()
-sendRequestAsync (CSTAHandle{..}) rq =
+sendRequestAsync :: DMCCHandle -> Request -> IO ()
+sendRequestAsync (DMCCHandle{..}) rq =
   sendRequestAsyncRaw loggingOptions (snd streams) invokeId rq
 
 

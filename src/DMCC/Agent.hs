@@ -5,12 +5,12 @@
 
 {-|
 
-Agents in a CSTA API session enable third-party call control over
+Agents in a DMCC API session enable third-party call control over
 devices.
 
 -}
 
-module CSTA.Agent
+module DMCC.Agent
 
 where
 
@@ -30,10 +30,10 @@ import           Data.Text (Text, unpack)
 
 import           Data.Time.Clock
 
-import           CSTA.Session
-import           CSTA.Types
-import qualified CSTA.XML.Request as Rq
-import qualified CSTA.XML.Response as Rs
+import           DMCC.Session
+import           DMCC.Types
+import qualified DMCC.XML.Request as Rq
+import qualified DMCC.XML.Response as Rs
 
 
 -- | Actions performable by a controlled agent.
@@ -72,7 +72,7 @@ $(makeLenses ''AgentState)
 -- state. Events may be used by agent subscribers to provide user with
 -- information.
 data Event = Event
-    { cstaEvent :: Rs.Event
+    { dmccEvent :: Rs.Event
     , newState :: AgentState
     }
     deriving Show
@@ -81,7 +81,7 @@ data Event = Event
 $(deriveToJSON defaultOptions ''Event)
 
 
--- | An agent controlled by a CSTA API session.
+-- | An agent controlled by a DMCC API session.
 data Agent = Agent
     { deviceId :: DeviceId
     , monitorId :: Text
@@ -134,7 +134,7 @@ releaseAgentLock (aid, as) =
 
 
 -- | Enable an active agent to be monitored and controlled through
--- CSTA API. If the agent has already been registered, return the old
+-- DMCC API. If the agent has already been registered, return the old
 -- entry (it's safe to call this function for the same agent multiple
 -- times).
 controlAgent :: SwitchName
@@ -163,7 +163,7 @@ controlAgent switch ext as = do
                 (throwIO (e :: IOException))) $
       do
         Rs.GetDeviceIdResponse{..} <-
-          sendRequestSync (cstaHandle as) $
+          sendRequestSync (dmccHandle as) $
           Rq.GetDeviceId
           { switchName = switch
           , extension = ext
@@ -188,7 +188,7 @@ controlAgent switch ext as = do
 
 
         Rs.MonitorStartResponse{..} <-
-          sendRequestSync (cstaHandle as) $
+          sendRequestSync (dmccHandle as) $
           Rq.MonitorStart
           { deviceObject = device
           , acceptedProtocol = protocolVersion as
@@ -207,11 +207,11 @@ controlAgent switch ext as = do
         return (aid, as)
 
 
--- | Translate agent actions into actual CSTA API requests.
+-- | Translate agent actions into actual DMCC API requests.
 processAgentAction :: AgentId -> DeviceId -> Session -> Action -> IO ()
 processAgentAction (AgentId (switch, _)) device as action =
   let
-    arq = sendRequestAsync (cstaHandle as)
+    arq = sendRequestAsync (dmccHandle as)
     simpleRequest rq cid =
       arq $ rq device cid (protocolVersion as)
     simpleRequest2 rq cid1 cid2 =
@@ -220,13 +220,13 @@ processAgentAction (AgentId (switch, _)) device as action =
   case action of
     MakeCall toNumber -> do
       rspDest <-
-        sendRequestSync (cstaHandle as) $
+        sendRequestSync (dmccHandle as) $
         Rq.GetThirdPartyDeviceId
         -- Assume destination switch is the same as agent's
         { switchName = switch
         , extension = toNumber
         }
-      sendRequestAsync (cstaHandle as) $
+      sendRequestAsync (dmccHandle as) $
         Rq.MakeCall
         device
         (Rs.device rspDest)
@@ -242,11 +242,11 @@ processAgentAction (AgentId (switch, _)) device as action =
     -- Synchronous to avoid missed digits if actions queue up
     SendDigits{..}  ->
       void $
-      sendRequestSync (cstaHandle as) $
+      sendRequestSync (dmccHandle as) $
       Rq.GenerateDigits digits device callId (protocolVersion as)
 
 
--- | Process CSTA API events for this agent to change its state and
+-- | Process DMCC API events for this agent to change its state and
 -- broadcast events further.
 --
 -- TODO Allow agents to control only own calls.
@@ -346,12 +346,12 @@ releaseAgent (aid, as) = do
                 releaseAgentLock (aid, as) >>
                 (throwIO (e :: IOException))) $
       do
-        sendRequestSync (cstaHandle as) $
+        sendRequestSync (dmccHandle as) $
           Rq.MonitorStop
           { acceptedProtocol = protocolVersion as
           , monitorCrossRefID = monitorId ag
           }
-        sendRequestSync (cstaHandle as) $
+        sendRequestSync (dmccHandle as) $
           Rq.ReleaseDeviceId{device = deviceId ag}
         killThread (actionThread ag)
         atomically $ modifyTVar' (agents as) (Map.delete aid)

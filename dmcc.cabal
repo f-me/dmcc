@@ -1,11 +1,11 @@
-Name:                csta
+Name:                dmcc
 Version:             0.1
-Synopsis:            CSTA XML API implementation and WebSockets server
+Synopsis:            AVAYA DMCC XML API implementation and WebSockets server
 
 Description:         Partial implementation of CSTA Phase III XML Protocol
                      (ECMA-323) with AVAYA (DMCC 6.3) extensions.
 
-Homepage:            https://github.com/f-me/csta
+Homepage:            https://github.com/f-me/dmcc
 License:             BSD3
 License-file:        LICENSE
 Author:              Max Taldykin, Timofey Cherganov, Dmitry Dzhus
@@ -13,14 +13,14 @@ Maintainer:          max@formalmethods.ru
 Category:            Network
 Build-type:          Simple
 Cabal-version:       >=1.8
-Extra-source-files:  README.org, csta-ws/example.cfg
+Extra-source-files:  README.org, dmcc-ws/example.cfg
 
 source-repository head
   type:     git
-  location: git://github.com/f-me/csta.git
+  location: git://github.com/f-me/dmcc.git
 
-Executable csta-ws
-  Hs-source-dirs: csta-ws
+Executable dmcc-ws
+  Hs-source-dirs: dmcc-ws
   Main-is: Main.hs
 
   ghc-options: -Wall -fno-warn-unused-do-bind -threaded
@@ -37,7 +37,7 @@ Executable csta-ws
     bytestring           >= 0.9.1 && < 0.11,
     configurator         >= 0.2 && < 0.4,
     containers           == 0.5.*,
-    csta,
+    dmcc,
     hsyslog              >= 1.4 && < 2.1,
     mtl                  >= 2.1 && < 2.3,
     network              >= 2.3 && < 2.7,
@@ -54,15 +54,15 @@ Executable csta-ws
 Library
   Hs-source-dirs: src
   Exposed-modules:
-    CSTA
+    DMCC
 
   Other-modules:
-    CSTA.Agent
-    CSTA.Session
-    CSTA.Types
-    CSTA.XML.Raw
-    CSTA.XML.Request
-    CSTA.XML.Response
+    DMCC.Agent
+    DMCC.Session
+    DMCC.Types
+    DMCC.XML.Raw
+    DMCC.XML.Request
+    DMCC.XML.Response
 
   ghc-options: -Wall -fno-warn-unused-do-bind -threaded
 

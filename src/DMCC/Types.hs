@@ -4,7 +4,7 @@
 
 {-| Shared type declarations. -}
 
-module CSTA.Types
+module DMCC.Types
 
 where
 
@@ -17,9 +17,9 @@ import Data.Text
 import Data.Time.Clock
 
 
--- | Device ID used in CSTA requests.
+-- | Device ID used in DMCC requests.
 --
--- This is based on text as stated in CSTA specification.
+-- This is based on text as stated in DMCC specification.
 newtype DeviceId =
   DeviceId (CI Text)
   deriving (Eq, Ord, Show)

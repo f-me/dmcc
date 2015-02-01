@@ -1,13 +1,13 @@
-module CSTA.Agent
+module DMCC.Agent
 
 where
 
 import           Control.Concurrent.STM (TChan)
 import           Data.Text (Text)
 
-import           CSTA.Types
-import qualified CSTA.XML.Response as Rs
-import {-# SOURCE #-} CSTA.Session
+import           DMCC.Types
+import qualified DMCC.XML.Response as Rs
+import {-# SOURCE #-} DMCC.Session
 
 
 data Agent

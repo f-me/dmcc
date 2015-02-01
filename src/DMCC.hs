@@ -5,12 +5,12 @@
 
 {-|
 
-CSTA XML API implementation for third party call control and
+DMCC XML API implementation for third party call control and
 monitoring.
 
 -}
 
-module CSTA
+module DMCC
   ( Session
   , ConnectionType(..)
   , startSession
@@ -27,11 +27,11 @@ module CSTA
   , handleEvents
   , getAgentState
 
-  , module CSTA.Types
+  , module DMCC.Types
   )
 
 where
 
-import           CSTA.Agent
-import           CSTA.Session
-import           CSTA.Types
+import           DMCC.Agent
+import           DMCC.Session
+import           DMCC.Types

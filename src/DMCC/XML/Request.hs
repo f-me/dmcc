@@ -5,7 +5,7 @@
 
 {-| Low-level XML API requests. -}
 
-module CSTA.XML.Request
+module DMCC.XML.Request
 
 where
 
@@ -18,7 +18,7 @@ import qualified Data.Text as T
 import           Text.Hamlet.XML
 import           Text.XML
 
-import           CSTA.Types
+import           DMCC.Types
 
 
 data Request

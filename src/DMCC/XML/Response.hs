@@ -2,7 +2,7 @@
 
 {-| Incoming XML messages (responses and events). -}
 
-module CSTA.XML.Response
+module DMCC.XML.Response
     ( Response(..)
     , Event(..)
     , fromXml
@@ -23,7 +23,7 @@ import           Data.Aeson.TH
 import           Text.XML
 import           Text.XML.Cursor
 
-import           CSTA.Types
+import           DMCC.Types
 
 
 data Response
