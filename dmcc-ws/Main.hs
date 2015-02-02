@@ -19,11 +19,14 @@ import           Control.Applicative
 import           Control.Concurrent
 import           Control.Exception
 import           Control.Monad
+import           Control.Concurrent.STM
 
 import           Data.Aeson
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Configurator as Cfg
+import qualified Data.Map as Map
+import           Data.Maybe
 import           Data.Text (Text)
 
 import           Network.WebSockets
@@ -93,13 +96,40 @@ realMain config = do
        stopSession s)
     (\s ->
        syslog Info ("Running server for " ++ show s) >>
-       runServer "0.0.0.0" listenPort (avayaApplication cfg s))
+       newTMVarIO (Map.empty) >>=
+       \refs -> runServer "0.0.0.0" listenPort (avayaApplication cfg s refs))
 
 
-avayaApplication :: Config -> Session -> ServerApp
-avayaApplication cfg as pending = do
+type AgentMap = TMVar (Map.Map AgentHandle Int)
+
+
+-- | Decrement reference counter for an agent. If no references left,
+-- release control over agent. Return how many references are left.
+releaseAgentRef :: AgentHandle -> AgentMap -> IO Int
+releaseAgentRef ah refs = do
+  r <- atomically $ takeTMVar refs
+  flip onException (atomically $ putTMVar refs r) $
+    case Map.lookup ah r of
+      Just cnt -> do
+        newR <- if cnt > 1
+                then return $ Map.insert ah (cnt - 1) r
+                else (releaseAgent ah >> (return $ Map.delete ah r))
+        atomically $ putTMVar refs newR
+        return $ cnt - 1
+      Nothing -> error $ "Releasing unknown agent " ++ show ah
+
+
+avayaApplication :: Config
+                 -> Session
+                 -- ^ DMCC session.
+                 -> AgentMap
+                 -- ^ Reference-counting map of used agent ids.
+                 -> ServerApp
+avayaApplication cfg as refs pending = do
   let rq = pendingRequest pending
       pathArg = map (liftM fst . B.readInt) $ B.split '/' $ requestPath rq
+      refReport ext cnt =
+        syslog Debug $ show ext ++ " has " ++ show cnt ++ " references"
   case pathArg of
     [Nothing, Just ext] -> do
       -- Somewhat unique label for this connection
@@ -108,30 +138,41 @@ avayaApplication cfg as pending = do
       conn <- acceptRequest pending
       syslog Debug $ "New websocket opened for " ++ label
       forkPingThread conn 30
-      -- Assume that all agents are on the same switch
-      ah <- controlAgent (switchName cfg) (Extension ext) as
-      syslog Debug $ "Controlling agent " ++ show ah ++ " from " ++ label
-      s <- getAgentState ah
-      sendTextData conn $ encode s
-      -- Event/action loops
-      evThread <- handleEvents ah
-        (\ev ->
-           do
-             syslog Debug ("Event for " ++ label ++ ": " ++ show ev)
-             sendTextData conn $ encode ev)
-      handle
-        (\e ->
-           do
-             killThread evThread
-             syslog Debug ("Exception for " ++ label ++ ": " ++
-                           show (e :: ConnectionException))) $
-        forever $ do
-          msg <- receiveData conn
-          case decode msg of
-            Just act -> do
-              syslog Debug $ "Action from " ++ label ++ ": " ++ show act
-              agentAction act ah
-            _ -> syslog Debug $
-                 "Unrecognized message from " ++ label ++ ": " ++
-                 BL.unpack msg
+      -- Create agent reference
+      r <- atomically $ takeTMVar refs
+      flip onException (atomically $ putTMVar refs r) $ do
+        -- Assume that all agents are on the same switch
+        let ext' = Extension ext
+        ah <- controlAgent (switchName cfg) ext' as
+        -- Increment reference counter
+        let oldCount = fromMaybe 0 $ Map.lookup ah r
+        atomically $ putTMVar refs (Map.insert ah (oldCount + 1) r)
+        syslog Debug $ "Controlling agent " ++ show ah ++ " from " ++ label
+        refReport ext' (oldCount + 1)
+        -- Decrement reference counter when the connection dies or any
+        -- other exception happens
+        flip finally (releaseAgentRef ah refs >>= refReport ext') $ do
+          s <- getAgentState ah
+          sendTextData conn $ encode s
+          -- Event/action loops
+          evThread <- handleEvents ah
+            (\ev ->
+               do
+                 syslog Debug ("Event for " ++ label ++ ": " ++ show ev)
+                 sendTextData conn $ encode ev)
+          handle
+            (\e ->
+               do
+                 killThread evThread
+                 syslog Debug ("Exception for " ++ label ++ ": " ++
+                               show (e :: ConnectionException))) $
+            forever $ do
+              msg <- receiveData conn
+              case decode msg of
+                Just act -> do
+                  syslog Debug $ "Action from " ++ label ++ ": " ++ show act
+                  agentAction act ah
+                _ -> syslog Debug $
+                     "Unrecognized message from " ++ label ++ ": " ++
+                     BL.unpack msg
     _ -> rejectRequest pending "Malformed extension number"

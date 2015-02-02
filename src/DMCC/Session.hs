@@ -78,6 +78,14 @@ instance Show Session where
     "}"
 
 
+instance Eq Session where
+  s1 == s2 = (sessionId s1) == (sessionId s2)
+
+
+instance Ord Session where
+  compare s1 s2 = compare (sessionId s1) (sessionId s2)
+
+
 data LoopEvent
   = DMCCRsp Response
   | Timeout

@@ -17,6 +17,7 @@ module DMCC
   , stopSession
   , defaultLoggingOptions
 
+  , AgentHandle
   , controlAgent
   , releaseAgent
 
