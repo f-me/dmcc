@@ -25,6 +25,7 @@ import           System.IO.Streams.Handle
 import qualified System.IO.Streams.SSL as SSLStreams
 
 import           Network
+import qualified Network.HTTP.Client as HTTP
 import           Network.Socket
 import           OpenSSL
 import qualified OpenSSL.Session as SSL
@@ -66,6 +67,8 @@ data Session = Session
   , protocolVersion :: Text
   -- ^ Action worker thread.
   , dmccHandle :: DMCCHandle
+  , webHook :: Maybe (HTTP.Request, HTTP.Manager)
+  -- ^ Web hook handler URL and manager.
   , agents :: TVar (Map.Map AgentId Agent)
   , agentLocks :: TVar (Set.Set AgentId)
   }
@@ -99,15 +102,19 @@ defaultLoggingOptions = LoggingOptions "dmcc-lib"
 
 
 --FIXME: handle network errors
-startSession :: String
-             -> PortNumber
+startSession :: (String, PortNumber)
+             -- ^ Host and port of AES server.
              -> ConnectionType
              -- ^ Use TLS.
              -> Text
+             -- ^ DMCC API user.
              -> Text
+             -- ^ DMCC API password.
+             -> Maybe String
+             -- ^ Web hook URL.
              -> Maybe LoggingOptions
              -> IO Session
-startSession host port conn user pass lopts = withOpenSSL $ do
+startSession (host, port) conn user pass whUrl lopts = withOpenSSL $ do
   (istream, ostream, cl) <-
     case conn of
       Plain -> do
@@ -188,12 +195,20 @@ startSession host port conn user pass lopts = withOpenSSL $ do
             , requestedSessionDuration = actualSessionDuration
             }
 
+  wh <- case whUrl of
+          Just url -> do
+            mgr <- HTTP.newManager HTTP.defaultManagerSettings
+            req <- HTTP.parseUrl url
+            return $ Just (req, mgr)
+          Nothing -> return Nothing
+
   return $
     Session
     sessionID
     pingThread
     actualProtocolVersion
     h
+    wh
     agents
     agLocks
 

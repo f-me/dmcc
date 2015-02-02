@@ -28,6 +28,8 @@ module DMCC
   , handleEvents
   , getAgentState
 
+  , WHEvent(..)
+
   , module DMCC.Types
   )
 

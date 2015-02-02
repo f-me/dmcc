@@ -53,7 +53,7 @@ newtype SwitchName =
 
 newtype AgentId =
   AgentId (SwitchName, Extension)
-  deriving (Data, Typeable, Eq, Ord, Show)
+  deriving (Data, Typeable, Eq, Ord, Show, FromJSON, ToJSON)
 
 
 data CallDirection =
@@ -61,7 +61,7 @@ data CallDirection =
   deriving (Eq, Show)
 
 
-$(deriveToJSON defaultOptions ''CallDirection)
+$(deriveJSON defaultOptions ''CallDirection)
 
 
 data Call = Call
@@ -76,7 +76,7 @@ data Call = Call
   deriving Show
 
 
-$(deriveToJSON defaultOptions ''Call)
+$(deriveJSON defaultOptions ''Call)
 
 
 data LoggingOptions = LoggingOptions

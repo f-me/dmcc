@@ -50,6 +50,7 @@ data Config =
   , caDir      :: Maybe FilePath
   , apiUser    :: Text
   , apiPass    :: Text
+  , whUrl      :: Maybe String
   , switchName :: SwitchName
   , logLibrary :: Bool
   }
@@ -82,14 +83,16 @@ realMain config = do
       <*> Cfg.lookup  c "aes-cacert-directory"
       <*> Cfg.require c "api-user"
       <*> Cfg.require c "api-pass"
+      <*> Cfg.lookup  c "web-hook-handler-url"
       <*> (SwitchName <$> Cfg.require c "switch-name")
       <*> Cfg.require c "log-library"
 
   bracket
     (syslog Info ("Starting session using " ++ show cfg) >>
-     startSession aesAddr (fromIntegral aesPort)
+     startSession (aesAddr, fromIntegral aesPort)
      (if aesTLS then (TLS caDir) else Plain)
      apiUser apiPass
+     whUrl
      (if logLibrary then Just defaultLoggingOptions else Nothing))
     (\s ->
        syslog Info ("Stopping " ++ show s) >>

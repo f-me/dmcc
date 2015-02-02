@@ -78,7 +78,7 @@ data Event =
     }
   deriving Show
 
-$(deriveToJSON
+$(deriveJSON
   defaultOptions{sumEncoding = defaultTaggedObject{tagFieldName="event"}}
   ''Event)
 

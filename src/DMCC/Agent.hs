@@ -27,8 +27,10 @@ import           Data.Data
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import           Data.Text (Text, unpack)
-
 import           Data.Time.Clock
+
+import qualified Network.HTTP.Client as HTTP
+import           Network.HTTP.Client (httpNoBody, method, requestBody)
 
 import           DMCC.Session
 import           DMCC.Types
@@ -65,6 +67,12 @@ instance ToJSON AgentState where
            ]
 
 
+instance FromJSON AgentState where
+  parseJSON (Object o) =
+    (AgentState . Map.mapKeys CallId) `liftM` (o .: "calls")
+  parseJSON _ = fail "Could not parse AgentState from non-object"
+
+
 $(makeLenses ''AgentState)
 
 
@@ -78,7 +86,18 @@ data Event = Event
     deriving Show
 
 
-$(deriveToJSON defaultOptions ''Event)
+$(deriveJSON defaultOptions ''Event)
+
+
+-- | Web hook event.
+data WHEvent = WHEvent
+    { agentId :: AgentId
+    , event :: Event
+    }
+    deriving Show
+
+
+$(deriveJSON defaultOptions ''WHEvent)
 
 
 -- | An agent controlled by a DMCC API session.
@@ -184,7 +203,7 @@ controlAgent switch ext as = do
         inputThread <-
           forkIO $ forever $
           (atomically $ readTChan inputChan) >>=
-          processAgentEvent device state eventChan
+          processAgentEvent device state eventChan (webHook as)
 
 
         Rs.MonitorStartResponse{..} <-
@@ -253,9 +272,10 @@ processAgentAction (AgentId (switch, _)) device as action =
 processAgentEvent :: DeviceId
                   -> TVar AgentState
                   -> TChan Event
+                  -> Maybe (HTTP.Request, HTTP.Manager)
                   -> Rs.Event
                   -> IO ()
-processAgentEvent device state eventChan ev = do
+processAgentEvent device state eventChan wh ev = do
   let
     -- | Atomically modify one of the calls.
     callOperation :: CallId
@@ -274,8 +294,9 @@ processAgentEvent device state eventChan ev = do
               Nothing ->
                 error err
   now <- getCurrentTime
-  atomically $ do
-    case ev of
+  (updState, changed) <- atomically $ do
+    -- Return True if the event must be reported to agent event chan
+    chg <- case ev of
       -- New call
       Rs.DeliveredEvent{..} -> do
         let (dir, interloc) = if callingDevice == device
@@ -283,24 +304,29 @@ processAgentEvent device state eventChan ev = do
                               else (In, callingDevice)
             call = Call dir now [interloc] Nothing False
         modifyTVar state (calls %~ Map.insert callId call)
-      Rs.EstablishedEvent{..} ->
+        return True
+      Rs.EstablishedEvent{..} -> do
         callOperation callId
-        (\call -> Map.insert callId call{answered = Just now}) $
-        "Established connection to an undelivered call"
+          (\call -> Map.insert callId call{answered = Just now}) $
+          "Established connection to an undelivered call"
+        return True
       -- ConnectionCleared event arrives when line is put on HOLD too.
       -- A real call-ending ConnectionCleared is distinguished by its
       -- releasingDevice value.
-      Rs.ConnectionClearedEvent{..} ->
-        when (releasingDevice == device) $
-        modifyTVar state $ (calls %~ at callId .~ Nothing)
-      Rs.HeldEvent{..} ->
+      Rs.ConnectionClearedEvent{..} -> do
+        let really = releasingDevice == device
+        when really $ modifyTVar state $ (calls %~ at callId .~ Nothing)
+        return really
+      Rs.HeldEvent{..} -> do
         callOperation callId
-        (\call -> Map.insert callId call{held = True}) $
-        "Held an undelivered call"
-      Rs.RetrievedEvent{..} ->
+          (\call -> Map.insert callId call{held = True}) $
+          "Held an undelivered call"
+        return True
+      Rs.RetrievedEvent{..} -> do
         callOperation callId
-        (\call -> Map.insert callId call{held = False}) $
-        "Retrieved an undelivered call"
+          (\call -> Map.insert callId call{held = False}) $
+          "Retrieved an undelivered call"
+        return True
       -- Conferencing call A to call B yields ConferencedEvent with
       -- primaryCall=B and secondaryCall=A, while call A dies.
       Rs.ConferencedEvent prim sec -> do
@@ -313,16 +339,25 @@ processAgentEvent device state eventChan ev = do
                  Map.insert sec call{interlocutors = interlocutors oldCall ++
                                                      interlocutors newCall})
               "Conferenced an undelivered call"
+            return True
           -- ConferencedEvent may also be produced after a new
           -- established call but not caused by an actual conference
           -- user request (recorder single-stepping in).
-          _ -> return ()
+          _ -> return False
       Rs.TransferedEvent prim sec -> do
         modifyTVar state $ (calls %~ at prim .~ Nothing)
         modifyTVar state $ (calls %~ at sec .~ Nothing)
-      Rs.UnknownEvent -> return ()
+        return True
+      Rs.UnknownEvent -> return False
     s <- readTVar state
-    writeTChan eventChan $ Event ev s
+    when chg $ writeTChan eventChan $ Event ev s
+    return (s, chg)
+  case (wh, changed) of
+    (Just (req, mgr), True) ->
+      void $ httpNoBody req{requestBody = rqBody, method = "POST"} mgr
+      where
+        rqBody = HTTP.RequestBodyLBS $ A.encode $ Event ev updState
+    _ -> return ()
 
 
 -- | Forget about an agent, releasing his device and monitors.
