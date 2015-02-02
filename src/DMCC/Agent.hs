@@ -69,8 +69,8 @@ $(makeLenses ''AgentState)
 
 
 -- | An event observed by a controlled agent, along with updated agent
--- state. Events may be used by agent subscribers to provide user with
--- information.
+-- state. Events may be used by agent subscribers to provide
+-- information to user.
 data Event = Event
     { dmccEvent :: Rs.Event
     , newState :: AgentState
@@ -208,6 +208,8 @@ controlAgent switch ext as = do
 
 
 -- | Translate agent actions into actual DMCC API requests.
+--
+-- TODO Allow agents to control only own calls.
 processAgentAction :: AgentId -> DeviceId -> Session -> Action -> IO ()
 processAgentAction (AgentId (switch, _)) device as action =
   let
@@ -248,8 +250,6 @@ processAgentAction (AgentId (switch, _)) device as action =
 
 -- | Process DMCC API events for this agent to change its state and
 -- broadcast events further.
---
--- TODO Allow agents to control only own calls.
 processAgentEvent :: DeviceId
                   -> TVar AgentState
                   -> TChan Event
@@ -314,8 +314,8 @@ processAgentEvent device state eventChan ev = do
                                                      interlocutors newCall})
               "Conferenced an undelivered call"
           -- ConferencedEvent may also be produced after a new
-          -- established call (not caused by an actual conference user
-          -- request)
+          -- established call but not caused by an actual conference
+          -- user request (recorder single-stepping in).
           _ -> return ()
       Rs.TransferedEvent prim sec -> do
         modifyTVar state $ (calls %~ at prim .~ Nothing)
