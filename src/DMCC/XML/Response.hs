@@ -30,22 +30,22 @@ data Response
   = UnknownResponse ByteString
   | MalformedResponse ByteString SomeException
   | StartApplicationSessionPosResponse
-    {sessionID :: Text
-    ,actualProtocolVersion :: Text
-    ,actualSessionDuration :: Int
+    { sessionID :: Text
+    , actualProtocolVersion :: Text
+    , actualSessionDuration :: Int
     }
   | GetDeviceIdResponse
-    {device :: DeviceId
+    { device :: DeviceId
     }
   | GetThirdPartyDeviceIdResponse
-    {device :: DeviceId
+    { device :: DeviceId
     }
   | MonitorStartResponse
-    {monitorCrossRefID :: Text
+    { monitorCrossRefID :: Text
     }
   | EventResponse
-    {monitorCrossRefID :: Text
-    ,event :: Event
+    { monitorCrossRefID :: Text
+    , event :: Event
     }
   deriving Show
 
@@ -88,87 +88,87 @@ fromXml xml
     Left err -> MalformedResponse xml err
     Right doc -> let cur = fromDocument doc
       in case nameLocalName $ elementName $ documentRoot doc of
-        "StartApplicationSessionPosResponse"
-          -> StartApplicationSessionPosResponse
-            {sessionID = text cur "sessionID"
-            ,actualProtocolVersion = text cur "actualProtocolVersion"
-            ,actualSessionDuration = decimal cur "actualSessionDuration"
-            }
+        "StartApplicationSessionPosResponse" ->
+          StartApplicationSessionPosResponse
+          { sessionID = text cur "sessionID"
+          , actualProtocolVersion = text cur "actualProtocolVersion"
+          , actualSessionDuration = decimal cur "actualSessionDuration"
+          }
 
-        "GetDeviceIdResponse"
-          -> GetDeviceIdResponse
-            {device = DeviceId $ mk $ text cur "device"
-            }
+        "GetDeviceIdResponse" ->
+          GetDeviceIdResponse
+          { device = DeviceId $ mk $ text cur "device"
+          }
 
-        "GetThirdPartyDeviceIdResponse"
-          -> GetThirdPartyDeviceIdResponse
-            {device = DeviceId $ mk $ text cur "device"
-            }
+        "GetThirdPartyDeviceIdResponse" ->
+          GetThirdPartyDeviceIdResponse
+          { device = DeviceId $ mk $ text cur "device"
+          }
 
-        "MonitorStartResponse"
-          -> MonitorStartResponse
-            {monitorCrossRefID = text cur "monitorCrossRefID"
-            }
+        "MonitorStartResponse" ->
+          MonitorStartResponse
+          {monitorCrossRefID = text cur "monitorCrossRefID"
+          }
 
-        "DeliveredEvent"
-          -> EventResponse (text cur "monitorCrossRefID") $
-             DeliveredEvent
-             { callId =
-               CallId $ textFromPath cur "connection" ["callId"]
-             , callingDevice =
-               DeviceId $ mk $ textFromPath cur "callingDevice" ["deviceIdentifier"]
-             , calledDevice =
-               DeviceId $ mk $ textFromPath cur "calledDevice" ["deviceIdentifier"]
-             }
+        "DeliveredEvent" ->
+          EventResponse (text cur "monitorCrossRefID") $
+          DeliveredEvent
+          { callId =
+            CallId $ textFromPath cur "connection" ["callId"]
+          , callingDevice =
+            DeviceId $ mk $ textFromPath cur "callingDevice" ["deviceIdentifier"]
+          , calledDevice =
+            DeviceId $ mk $ textFromPath cur "calledDevice" ["deviceIdentifier"]
+          }
 
-        "EstablishedEvent"
-          -> EventResponse (text cur "monitorCrossRefID") $
-             EstablishedEvent
-             { callId =
-               CallId $ textFromPath cur "establishedConnection" ["callId"]
-             }
+        "EstablishedEvent" ->
+          EventResponse (text cur "monitorCrossRefID") $
+          EstablishedEvent
+          { callId =
+            CallId $ textFromPath cur "establishedConnection" ["callId"]
+          }
 
-        "HeldEvent"
-          -> EventResponse (text cur "monitorCrossRefID") $
-             HeldEvent
-             { callId =
-               CallId $ textFromPath cur "heldConnection" ["callId"]
-             }
+        "HeldEvent" ->
+          EventResponse (text cur "monitorCrossRefID") $
+          HeldEvent
+          { callId =
+            CallId $ textFromPath cur "heldConnection" ["callId"]
+          }
 
-        "RetrievedEvent"
-          -> EventResponse (text cur "monitorCrossRefID") $
-             RetrievedEvent
-             { callId =
-               CallId $ textFromPath cur "retrievedConnection" ["callId"]
-             }
+        "RetrievedEvent" ->
+          EventResponse (text cur "monitorCrossRefID") $
+          RetrievedEvent
+          { callId =
+            CallId $ textFromPath cur "retrievedConnection" ["callId"]
+          }
 
-        "ConferencedEvent"
-          -> EventResponse (text cur "monitorCrossRefID") $
-             ConferencedEvent
-             { primaryOldCall =
-               CallId $ textFromPath cur "primaryOldCall" ["callId"]
-             , secondaryOldCall =
-               CallId $ textFromPath cur "secondaryOldCall" ["callId"]
-             }
+        "ConferencedEvent" ->
+          EventResponse (text cur "monitorCrossRefID") $
+          ConferencedEvent
+          { primaryOldCall =
+            CallId $ textFromPath cur "primaryOldCall" ["callId"]
+          , secondaryOldCall =
+            CallId $ textFromPath cur "secondaryOldCall" ["callId"]
+          }
 
-        "TransferedEvent"
-          -> EventResponse (text cur "monitorCrossRefID") $
-             TransferedEvent
-             { primaryOldCall =
-               CallId $ textFromPath cur "primaryOldCall" ["callId"]
-             , secondaryOldCall =
-               CallId $ textFromPath cur "secondaryOldCall" ["callId"]
-             }
+        "TransferedEvent" ->
+          EventResponse (text cur "monitorCrossRefID") $
+          TransferedEvent
+          { primaryOldCall =
+            CallId $ textFromPath cur "primaryOldCall" ["callId"]
+          , secondaryOldCall =
+            CallId $ textFromPath cur "secondaryOldCall" ["callId"]
+          }
 
-        "ConnectionClearedEvent"
-          -> EventResponse (text cur "monitorCrossRefID") $
-             ConnectionClearedEvent
-             { callId =
-               CallId $ textFromPath cur "droppedConnection" ["callId"]
-             , releasingDevice =
-               DeviceId $ mk $
-               textFromPath cur "releasingDevice" ["deviceIdentifier"]
-             }
+        "ConnectionClearedEvent" ->
+          EventResponse (text cur "monitorCrossRefID") $
+          ConnectionClearedEvent
+          { callId =
+            CallId $ textFromPath cur "droppedConnection" ["callId"]
+          , releasingDevice =
+            DeviceId $ mk $
+            textFromPath cur "releasingDevice" ["deviceIdentifier"]
+          }
 
         _ -> UnknownResponse xml
 

@@ -168,8 +168,9 @@ deriving instance ToText CallId
 
 toXml :: Request -> L.ByteString
 toXml rq = renderLBS def $ case rq of
-  StartApplicationSession{..}
-    -> doc "StartApplicationSession" nsAppSession [xml|
+  StartApplicationSession{..} ->
+    doc "StartApplicationSession" nsAppSession
+    [xml|
       <applicationInfo>
         <applicationID>#{applicationId}
         <applicationSpecificInfo>
@@ -180,103 +181,117 @@ toXml rq = renderLBS def $ case rq of
       <requestedProtocolVersions>
         <protocolVersion>#{getProtocolString requestedProtocolVersion}
       <requestedSessionDuration>#{T.pack $ show requestedSessionDuration}
-      |]
+    |]
 
-  StopApplicationSession{..}
-    -> doc "StopApplicationSession" nsAppSession [xml|
+  StopApplicationSession{..} ->
+    doc "StopApplicationSession" nsAppSession
+    [xml|
       <sessionID>#{sessionID}
       <sessionEndReason>
         <definedEndReason>normal
-      |]
+    |]
 
-  ResetApplicationSessionTimer{..}
-    -> doc "ResetApplicationSessionTimer" nsAppSession [xml|
+  ResetApplicationSessionTimer{..} ->
+    doc "ResetApplicationSessionTimer" nsAppSession
+    [xml|
       <sessionID>#{sessionId}
       <requestedSessionDuration>#{T.pack $ show requestedSessionDuration}
-      |]
+    |]
 
-  GetDeviceId{..}
-    -> doc "GetDeviceId" nsACX [xml|
+  GetDeviceId{..} ->
+    doc "GetDeviceId" nsACX
+    [xml|
       <switchName>#{toText switchName}
       <extension>#{toText extension}
       <controllableByOtherSessions>true
-      |]
+    |]
 
-  GetThirdPartyDeviceId{..}
-    -> doc "GetThirdPartyDeviceId" nsACX [xml|
+  GetThirdPartyDeviceId{..} ->
+    doc "GetThirdPartyDeviceId" nsACX
+    [xml|
       <switchName>#{toText switchName}
       <extension>#{toText extension}
-      |]
+    |]
 
-  MakeCall{..}
-    -> doc "MakeCall" acceptedProtocol [xml|
+  MakeCall{..} ->
+    doc "MakeCall" acceptedProtocol
+    [xml|
       <callingDevice>#{toText callingDevice}
       <calledDirectoryNumber>#{toText calledDirectoryNumber}
-      |]
+    |]
 
-  AnswerCall{..}
-    -> doc "AnswerCall" acceptedProtocol [xml|
+  AnswerCall{..} ->
+    doc "AnswerCall" acceptedProtocol
+    [xml|
       <callToBeAnswered>
         <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
         <callID>#{toText callId}
-      |]
+    |]
 
-  HoldCall{..}
-    -> doc "HoldCall" acceptedProtocol [xml|
+  HoldCall{..} ->
+    doc "HoldCall" acceptedProtocol
+    [xml|
       <callToBeHeld>
         <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
         <callID>#{toText callId}
-      |]
+    |]
 
-  RetrieveCall{..}
-    -> doc "RetrieveCall" acceptedProtocol [xml|
+  RetrieveCall{..} ->
+    doc "RetrieveCall" acceptedProtocol
+    [xml|
       <callToBeRetrieved>
         <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
         <callID>#{toText callId}
-      |]
+    |]
 
-  GenerateDigits{..}
-    -> doc "GenerateDigits" acceptedProtocol [xml|
+  GenerateDigits{..} ->
+    doc "GenerateDigits" acceptedProtocol
+    [xml|
       <connectionToSendDigits>
         <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
         <callID>#{toText callId}
       <charactersToSend>#{charactersToSend}
-      |]
+    |]
 
-  ConferenceCall{..}
-    -> doc "ConferenceCall" acceptedProtocol [xml|
+  ConferenceCall{..} ->
+    doc "ConferenceCall" acceptedProtocol
+    [xml|
       <heldCall>
         <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
         <callID>#{toText heldCall}
       <activeCall>
         <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
         <callID>#{toText activeCall}
-      |]
+    |]
 
-  TransferCall{..}
-    -> doc "TransferCall" acceptedProtocol [xml|
+  TransferCall{..} ->
+    doc "TransferCall" acceptedProtocol
+    [xml|
       <heldCall>
         <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
         <callID>#{toText heldCall}
       <activeCall>
         <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
         <callID>#{toText activeCall}
-      |]
+    |]
 
-  ClearConnection{..}
-    -> doc "ClearConnection" acceptedProtocol [xml|
+  ClearConnection{..} ->
+    doc "ClearConnection" acceptedProtocol
+    [xml|
       <connectionToBeCleared>
         <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
         <callID>#{toText callId}
-      |]
+    |]
 
-  ReleaseDeviceId{..}
-    -> doc "ReleaseDeviceId" nsACX [xml|
+  ReleaseDeviceId{..} ->
+    doc "ReleaseDeviceId" nsACX
+    [xml|
       <device>#{toText device}
-      |]
+    |]
 
-  MonitorStart{..}
-    -> doc "MonitorStart" acceptedProtocol [xml|
+  MonitorStart{..} ->
+    doc "MonitorStart" acceptedProtocol
+    [xml|
       <monitorObject>
         <deviceObject typeOfNumber="other" mediaClass="notKnown">
           #{toText deviceObject}
@@ -294,9 +309,10 @@ toXml rq = renderLBS def $ case rq of
           <private>
             <AvayaEvents>
               <invertFilter>true
-      |]
+    |]
 
-  MonitorStop{..}
-    -> doc "MonitorStop" acceptedProtocol [xml|
+  MonitorStop{..} ->
+    doc "MonitorStop" acceptedProtocol
+    [xml|
       <monitorCrossRefID>#{monitorCrossRefID}
-      |]
+    |]
