@@ -62,8 +62,14 @@ data Event =
     , callingDevice :: DeviceId
     , calledDevice :: DeviceId
     }
+  | OriginatedEvent
+    { callId :: CallId
+    , callingDevice :: DeviceId
+    , calledDevice :: DeviceId
+    }
   | EstablishedEvent
-    {callId :: CallId}
+    { callId :: CallId
+    }
   | ConnectionClearedEvent
     { callId :: CallId
     , releasingDevice :: DeviceId
@@ -119,6 +125,17 @@ fromXml xml
           DeliveredEvent
           { callId =
             CallId $ textFromPath cur "connection" ["callId"]
+          , callingDevice =
+            DeviceId $ mk $ textFromPath cur "callingDevice" ["deviceIdentifier"]
+          , calledDevice =
+            DeviceId $ mk $ textFromPath cur "calledDevice" ["deviceIdentifier"]
+          }
+
+        "OriginatedEvent" ->
+          EventResponse (text cur "monitorCrossRefID") $
+          OriginatedEvent
+          { callId =
+            CallId $ textFromPath cur "originatedConnection" ["callId"]
           , callingDevice =
             DeviceId $ mk $ textFromPath cur "callingDevice" ["deviceIdentifier"]
           , calledDevice =

@@ -303,14 +303,27 @@ processAgentEvent device state eventChan wh rs = do
       (updState, report) <- atomically $ do
         -- Return True if the event must be reported to agent event chan
         report <- case ev of
-          -- New call
-          (Rs.DeliveredEvent{..}) -> do
-            let (dir, interloc) = if callingDevice == device
-                                  then (Out, calledDevice)
-                                  else (In, callingDevice)
-                call = Call dir now [interloc] Nothing False
+          -- New outgoing call
+          Rs.OriginatedEvent{..} -> do
             modifyTVar' state (calls %~ Map.insert callId call)
             return True
+            where
+              call = Call Out now [calledDevice] Nothing False
+          -- New call
+          Rs.DeliveredEvent{..} -> do
+            s <- readTVar state
+            case Map.member callId $ _calls s of
+              -- DeliveredEvent arrives after OriginatedEvent, but we
+              -- keep the original call information
+              True -> return False
+              False -> do
+                modifyTVar' state (calls %~ Map.insert callId call)
+                return True
+            where
+              (dir, interloc) = if callingDevice == device
+                                then (Out, calledDevice)
+                                else (In, callingDevice)
+              call = Call dir now [interloc] Nothing False
           Rs.EstablishedEvent{..} -> do
             callOperation callId
               (\call -> Map.insert callId call{answered = Just now}) $
