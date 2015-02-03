@@ -5,8 +5,7 @@
 
 {-|
 
-Agents in a DMCC API session enable third-party call control over
-devices.
+Agents in a DMCC API session enable call control over devices.
 
 -}
 
@@ -76,14 +75,14 @@ instance FromJSON AgentState where
 $(makeLenses ''AgentState)
 
 
--- | An event observed by a controlled agent, along with updated agent
--- state. Events may be used by agent subscribers to provide
--- information to user.
-data Event = Event
-    { dmccEvent :: Rs.Event
-    , newState :: AgentState
-    }
-    deriving Show
+-- | Events/errors are published to external clients of the
+-- agents and may be used by agent subscribers to provide information
+-- to user.
+data Event = TelephonyEvent{dmccEvent :: Rs.Event, newState :: AgentState}
+           -- ^ A telephony-related event, along with updated state.
+           | RequestError{errorText :: Text}
+           -- ^ An error caused by a request from this agent.
+           deriving Show
 
 
 $(deriveJSON defaultOptions ''Event)
@@ -107,7 +106,7 @@ data Agent = Agent
     , actionChan :: TChan Action
     -- ^ Actions performed by the agent.
     , actionThread :: ThreadId
-    , inputChan :: TChan Rs.Event
+    , inputChan :: TChan Rs.Response
     -- ^ Input chan for XML events produced by this agent's monitor.
     , inputThread :: ThreadId
     , eventChan :: TChan Event
@@ -126,8 +125,7 @@ instance Show Agent where
 type AgentHandle = (AgentId, Session)
 
 
-data AgentError = Error String
-                | UnknownAgent AgentId
+data AgentError = UnknownAgent AgentId
                 deriving (Data, Typeable, Show)
 
 
@@ -154,8 +152,8 @@ releaseAgentLock (aid, as) =
 
 -- | Enable an active agent to be monitored and controlled through
 -- DMCC API. If the agent has already been registered, return the old
--- entry (it's safe to call this function for the same agent multiple
--- times).
+-- entry (it's safe to call this function with the same arguments
+-- multiple times).
 controlAgent :: SwitchName
              -> Extension
              -> Session
@@ -181,11 +179,22 @@ controlAgent switch ext as = do
                 releaseAgentLock (aid, as) >>
                 (throwIO (e :: IOException))) $
       do
+        -- Get Avaya info for this agent (note that requests are not
+        -- attached to the agent (Nothing) as it has not been inserted
+        -- in the agent map of the session yet).
+
         Rs.GetDeviceIdResponse{..} <-
-          sendRequestSync (dmccHandle as) $
+          sendRequestSync (dmccHandle as) Nothing $
           Rq.GetDeviceId
           { switchName = switch
           , extension = ext
+          }
+
+        Rs.MonitorStartResponse{..} <-
+          sendRequestSync (dmccHandle as) Nothing $
+          Rq.MonitorStart
+          { deviceObject = device
+          , acceptedProtocol = protocolVersion as
           }
 
         -- Setup action and event processing for this agent
@@ -205,13 +214,6 @@ controlAgent switch ext as = do
           (atomically $ readTChan inputChan) >>=
           processAgentEvent device state eventChan (webHook as)
 
-
-        Rs.MonitorStartResponse{..} <-
-          sendRequestSync (dmccHandle as) $
-          Rq.MonitorStart
-          { deviceObject = device
-          , acceptedProtocol = protocolVersion as
-          }
         let ag = Agent
                  device
                  monitorCrossRefID
@@ -230,9 +232,9 @@ controlAgent switch ext as = do
 --
 -- TODO Allow agents to control only own calls.
 processAgentAction :: AgentId -> DeviceId -> Session -> Action -> IO ()
-processAgentAction (AgentId (switch, _)) device as action =
+processAgentAction aid@(AgentId (switch, _)) device as action =
   let
-    arq = sendRequestAsync (dmccHandle as)
+    arq = sendRequestAsync (dmccHandle as) (Just aid)
     simpleRequest rq cid =
       arq $ rq device cid (protocolVersion as)
     simpleRequest2 rq cid1 cid2 =
@@ -241,13 +243,13 @@ processAgentAction (AgentId (switch, _)) device as action =
   case action of
     MakeCall toNumber -> do
       rspDest <-
-        sendRequestSync (dmccHandle as) $
+        sendRequestSync (dmccHandle as) (Just aid) $
         Rq.GetThirdPartyDeviceId
         -- Assume destination switch is the same as agent's
         { switchName = switch
         , extension = toNumber
         }
-      sendRequestAsync (dmccHandle as) $
+      sendRequestAsync (dmccHandle as) (Just aid) $
         Rq.MakeCall
         device
         (Rs.device rspDest)
@@ -259,23 +261,23 @@ processAgentAction (AgentId (switch, _)) device as action =
       simpleRequest2 Rq.ConferenceCall activeCall heldCall
     TransferCall activeCall heldCall ->
       simpleRequest2 Rq.TransferCall activeCall heldCall
-    EndCall callId      -> simpleRequest Rq.ClearConnection callId
+    EndCall callId -> simpleRequest Rq.ClearConnection callId
     -- Synchronous to avoid missed digits if actions queue up
     SendDigits{..}  ->
       void $
-      sendRequestSync (dmccHandle as) $
+      sendRequestSync (dmccHandle as) (Just aid) $
       Rq.GenerateDigits digits device callId (protocolVersion as)
 
 
--- | Process DMCC API events for this agent to change its state and
--- broadcast events further.
+-- | Process DMCC API events/errors for this agent to change its state
+-- and broadcast events further.
 processAgentEvent :: DeviceId
                   -> TVar AgentState
                   -> TChan Event
                   -> Maybe (HTTP.Request, HTTP.Manager)
-                  -> Rs.Event
+                  -> Rs.Response
                   -> IO ()
-processAgentEvent device state eventChan wh ev = do
+processAgentEvent device state eventChan wh rs = do
   let
     -- | Atomically modify one of the calls.
     callOperation :: CallId
@@ -286,7 +288,7 @@ processAgentEvent device state eventChan wh ev = do
                   -- ^ Error message if no such call found
                   -> STM ()
     callOperation callId callMod err =
-        modifyTVar state $
+        modifyTVar' state $
           \m ->
             case Map.lookup callId (_calls m) of
               Just call ->
@@ -294,69 +296,77 @@ processAgentEvent device state eventChan wh ev = do
               Nothing ->
                 error err
   now <- getCurrentTime
-  (updState, changed) <- atomically $ do
-    -- Return True if the event must be reported to agent event chan
-    chg <- case ev of
-      -- New call
-      Rs.DeliveredEvent{..} -> do
-        let (dir, interloc) = if callingDevice == device
-                              then (Out, calledDevice)
-                              else (In, callingDevice)
-            call = Call dir now [interloc] Nothing False
-        modifyTVar state (calls %~ Map.insert callId call)
-        return True
-      Rs.EstablishedEvent{..} -> do
-        callOperation callId
-          (\call -> Map.insert callId call{answered = Just now}) $
-          "Established connection to an undelivered call"
-        return True
-      -- ConnectionCleared event arrives when line is put on HOLD too.
-      -- A real call-ending ConnectionCleared is distinguished by its
-      -- releasingDevice value.
-      Rs.ConnectionClearedEvent{..} -> do
-        let really = releasingDevice == device
-        when really $ modifyTVar state $ (calls %~ at callId .~ Nothing)
-        return really
-      Rs.HeldEvent{..} -> do
-        callOperation callId
-          (\call -> Map.insert callId call{held = True}) $
-          "Held an undelivered call"
-        return True
-      Rs.RetrievedEvent{..} -> do
-        callOperation callId
-          (\call -> Map.insert callId call{held = False}) $
-          "Retrieved an undelivered call"
-        return True
-      -- Conferencing call A to call B yields ConferencedEvent with
-      -- primaryCall=B and secondaryCall=A, while call A dies.
-      Rs.ConferencedEvent prim sec -> do
-        s <- readTVar state
-        case (Map.lookup prim (_calls s), Map.lookup sec (_calls s)) of
-          (Just oldCall, Just newCall) -> do
-            modifyTVar state $ (calls %~ at prim .~ Nothing)
-            callOperation sec
-              (\call ->
-                 Map.insert sec call{interlocutors = interlocutors oldCall ++
-                                                     interlocutors newCall})
-              "Conferenced an undelivered call"
+  case rs of
+    Rs.CSTAErrorCodeResponse err ->
+      atomically $ writeTChan eventChan $ RequestError err
+    Rs.EventResponse _ ev -> do
+      (updState, report) <- atomically $ do
+        -- Return True if the event must be reported to agent event chan
+        report <- case ev of
+          -- New call
+          (Rs.DeliveredEvent{..}) -> do
+            let (dir, interloc) = if callingDevice == device
+                                  then (Out, calledDevice)
+                                  else (In, callingDevice)
+                call = Call dir now [interloc] Nothing False
+            modifyTVar' state (calls %~ Map.insert callId call)
             return True
-          -- ConferencedEvent may also be produced after a new
-          -- established call but not caused by an actual conference
-          -- user request (recorder single-stepping in).
-          _ -> return False
-      Rs.TransferedEvent prim sec -> do
-        modifyTVar state $ (calls %~ at prim .~ Nothing)
-        modifyTVar state $ (calls %~ at sec .~ Nothing)
-        return True
-      Rs.UnknownEvent -> return False
-    s <- readTVar state
-    when chg $ writeTChan eventChan $ Event ev s
-    return (s, chg)
-  case (wh, changed) of
-    (Just (req, mgr), True) ->
-      void $ httpNoBody req{requestBody = rqBody, method = "POST"} mgr
-      where
-        rqBody = HTTP.RequestBodyLBS $ A.encode $ Event ev updState
+          Rs.EstablishedEvent{..} -> do
+            callOperation callId
+              (\call -> Map.insert callId call{answered = Just now}) $
+              "Established connection to an undelivered call"
+            return True
+          -- ConnectionCleared event arrives when line is put on HOLD too.
+          -- A real call-ending ConnectionCleared is distinguished by its
+          -- releasingDevice value.
+          Rs.ConnectionClearedEvent{..} -> do
+            let really = releasingDevice == device
+            when really $ modifyTVar' state $ (calls %~ at callId .~ Nothing)
+            return really
+          Rs.HeldEvent{..} -> do
+            callOperation callId
+              (\call -> Map.insert callId call{held = True}) $
+              "Held an undelivered call"
+            return True
+          Rs.RetrievedEvent{..} -> do
+            callOperation callId
+              (\call -> Map.insert callId call{held = False}) $
+              "Retrieved an undelivered call"
+            return True
+          -- Conferencing call A to call B yields ConferencedEvent with
+          -- primaryCall=B and secondaryCall=A, while call A dies.
+          Rs.ConferencedEvent prim sec -> do
+            s <- readTVar state
+            case (Map.lookup prim (_calls s), Map.lookup sec (_calls s)) of
+              (Just oldCall, Just newCall) -> do
+                modifyTVar' state $ (calls %~ at prim .~ Nothing)
+                callOperation sec
+                  (\call ->
+                     Map.insert sec
+                     call{interlocutors = interlocutors oldCall ++
+                                          interlocutors newCall})
+                  "Conferenced an undelivered call"
+                return True
+              -- ConferencedEvent may also be produced after a new
+              -- established call but not caused by an actual conference
+              -- user request (recorder single-stepping in).
+              _ -> return False
+          Rs.TransferedEvent prim sec -> do
+            modifyTVar' state $ (calls %~ at prim .~ Nothing)
+            modifyTVar' state $ (calls %~ at sec .~ Nothing)
+            return True
+          Rs.UnknownEvent -> return False
+        s <- readTVar state
+        when report $ writeTChan eventChan $ TelephonyEvent ev s
+        return (s, report)
+      -- Call webhook if necessary
+      case (wh, report) of
+        (Just (req, mgr), True) ->
+          void $ httpNoBody req{requestBody = rqBody, method = "POST"} mgr
+          where
+            rqBody = HTTP.RequestBodyLBS $ A.encode $ TelephonyEvent ev updState
+        _ -> return ()
+    -- All other responses cannot arrive to an agent
     _ -> return ()
 
 
@@ -381,12 +391,12 @@ releaseAgent (aid, as) = do
                 releaseAgentLock (aid, as) >>
                 (throwIO (e :: IOException))) $
       do
-        sendRequestSync (dmccHandle as) $
+        sendRequestSync (dmccHandle as) (Just aid) $
           Rq.MonitorStop
           { acceptedProtocol = protocolVersion as
           , monitorCrossRefID = monitorId ag
           }
-        sendRequestSync (dmccHandle as) $
+        sendRequestSync (dmccHandle as) (Just aid) $
           Rq.ReleaseDeviceId{device = deviceId ag}
         killThread (actionThread ag)
         atomically $ modifyTVar' (agents as) (Map.delete aid)

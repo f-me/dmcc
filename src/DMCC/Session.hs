@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 {-|
 
 DMCC session handling.
@@ -12,6 +14,7 @@ import           Control.Arrow
 import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
+import           Data.Functor
 
 import           Data.ByteString (ByteString)
 import           Data.List
@@ -54,9 +57,12 @@ data DMCCHandle = DMCCHandle
   -- ^ DMCC response reader thread.
   , procThread :: ThreadId
   -- ^ Response handler/synchronous requests worker thread.
-  , syncResponses :: TVar (IntMap.IntMap (TMVar Response))
   , invokeId :: TVar Int
   -- ^ Request/response counter.
+  , syncResponses :: TVar (IntMap.IntMap (TMVar Response))
+  , agentRequests :: TVar (IntMap.IntMap AgentId)
+  -- ^ Keeps track of which request has has been issued by what agent
+  -- (if there's one) until its response arrives.
   , loggingOptions :: Maybe LoggingOptions
   }
 
@@ -93,7 +99,6 @@ data LoopEvent
   = DMCCRsp Response
   | Timeout
   | ReadError
-  | ShutdownRequested
   deriving Show
 
 
@@ -145,24 +150,38 @@ startSession (host, port) conn user pass whUrl lopts = withOpenSSL $ do
     atomically . writeTChan msgChan . first DMCCRsp
 
   syncResponses <- newTVarIO IntMap.empty
+  agentRequests <- newTVarIO IntMap.empty
   agents <- newTVarIO Map.empty
 
   procThread <- forkIO $ forever $ do
     (msg, invokeId) <- atomically $ readTChan msgChan
+    -- TODO Check agent locks?
+    ags <- readTVarIO agents
     case msg of
-      -- Redirect events to matching agent
-      (DMCCRsp (Rs.EventResponse monId ev)) -> do
-        -- TODO Check agent locks?
-        ags <- readTVarIO agents
-        case find (\a -> monId == monitorId a) $ Map.elems ags of
-          Just ag -> atomically $ writeTChan (inputChan ag) ev
-          -- Event received for unknown agent?
-          Nothing -> return ()
       DMCCRsp rsp -> do
-        syncs <- readTVarIO syncResponses
-        case IntMap.lookup invokeId syncs of
-          Nothing -> return ()
+        -- Return response if the request was synchronous
+        sync' <- atomically $ do
+          srs <- readTVar syncResponses
+          modifyTVar' syncResponses (IntMap.delete invokeId)
+          return $ IntMap.lookup invokeId srs
+        case sync' of
           Just sync -> void $ atomically $ tryPutTMVar sync rsp
+          Nothing -> return ()
+        -- Redirect events and request errors to matching agent
+        ag' <- case rsp of
+                 Rs.EventResponse monId _ ->
+                   return $ find (\a -> monId == monitorId a) $ Map.elems ags
+                 Rs.CSTAErrorCodeResponse _ -> do
+                   aid <- atomically $ do
+                     ars <- readTVar agentRequests
+                     modifyTVar' agentRequests (IntMap.delete invokeId)
+                     return $ IntMap.lookup invokeId ars
+                   return $ (`Map.lookup` ags) =<< aid
+                 _ -> return Nothing
+        case ag' of
+          Just ag -> atomically $ writeTChan (inputChan ag) rsp
+          -- Error/event received for an unknown agent?
+          Nothing -> return ()
       _ -> return ()
 
   invokeId <- newTVarIO 0
@@ -172,11 +191,12 @@ startSession (host, port) conn user pass whUrl lopts = withOpenSSL $ do
           cl
           readThread
           procThread
-          syncResponses
           invokeId
+          syncResponses
+          agentRequests
           lopts
 
-  Rs.StartApplicationSessionPosResponse{..} <- sendRequestSync h
+  Rs.StartApplicationSessionPosResponse{..} <- sendRequestSync h Nothing
     $ Rq.StartApplicationSession
       { applicationId = ""
       , requestedProtocolVersion = Rq.DMCC_4_2
@@ -189,7 +209,7 @@ startSession (host, port) conn user pass whUrl lopts = withOpenSSL $ do
   -- Keep session alive
   pingThread <- forkIO $ forever $ do
     threadDelay $ actualSessionDuration * 500 * 1000
-    sendRequestAsyncRaw lopts ostream invokeId
+    sendRequestAsyncRaw lopts ostream invokeId Nothing
       $ Rq.ResetApplicationSessionTimer
             { sessionId = sessionID
             , requestedSessionDuration = actualSessionDuration
@@ -220,7 +240,7 @@ stopSession as@(Session{..}) = do
   ags <- readTVarIO agents
   mapM_ releaseAgent $ zip (Map.keys ags) (repeat as)
 
-  sendRequestAsync dmccHandle $
+  sendRequestAsync dmccHandle Nothing $
     Rq.StopApplicationSession{sessionID = sessionId}
   killThread pingThread
   killThread $ procThread dmccHandle
@@ -229,32 +249,42 @@ stopSession as@(Session{..}) = do
   cleanup dmccHandle
 
 
-sendRequestSync :: DMCCHandle -> Request -> IO Response
-sendRequestSync (DMCCHandle{..}) rq = do
+sendRequestSync :: DMCCHandle -> Maybe AgentId -> Request -> IO Response
+sendRequestSync (DMCCHandle{..}) aid rq = do
   (ix,var) <- atomically $ do
     modifyTVar' invokeId ((`mod` 9999).(+1))
     ix <- readTVar invokeId
     var <- newEmptyTMVar
     modifyTVar' syncResponses (IntMap.insert ix var)
-    return (ix,var)
-  -- FIXME: handle error
+    case aid of
+      Just a -> modifyTVar' agentRequests (IntMap.insert ix a)
+      Nothing -> return ()
+    return (ix, var)
+  -- FIXME: handle exceptions
   Raw.sendRequest loggingOptions (snd streams) ix rq
   atomically $ takeTMVar var
 
 
-sendRequestAsync :: DMCCHandle -> Request -> IO ()
-sendRequestAsync (DMCCHandle{..}) rq =
-  sendRequestAsyncRaw loggingOptions (snd streams) invokeId rq
+sendRequestAsync :: DMCCHandle -> Maybe AgentId -> Request -> IO ()
+sendRequestAsync (DMCCHandle{..}) aid rq =
+  sendRequestAsyncRaw loggingOptions (snd streams) invokeId a' rq
+  where
+    a' = (agentRequests, ) <$> aid
 
 
 sendRequestAsyncRaw :: Maybe LoggingOptions
                     -> OutputStream ByteString
                     -> TVar Int
+                    -> Maybe (TVar (IntMap.IntMap AgentId), AgentId)
                     -> Request
                     -> IO ()
-sendRequestAsyncRaw lopts ostream invoke rq = do
+sendRequestAsyncRaw lopts ostream invoke ar rq = do
   ix <- atomically $ do
     modifyTVar' invoke ((`mod` 9999).(+1))
-    readTVar invoke
-  -- FIXME: handle error
+    ix' <- readTVar invoke
+    case ar of
+      Just (agentRequests, a) -> modifyTVar' agentRequests (IntMap.insert ix' a)
+      Nothing -> return ()
+    return ix'
+  -- FIXME: handle exceptions
   Raw.sendRequest lopts ostream ix rq

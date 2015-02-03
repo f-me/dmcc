@@ -47,6 +47,10 @@ data Response
     { monitorCrossRefID :: Text
     , event :: Event
     }
+  -- | Pretty-printed <CSTAErrorCode> message.
+  | CSTAErrorCodeResponse
+    { errorText :: Text
+    }
   deriving Show
 
 
@@ -168,6 +172,19 @@ fromXml xml
           , releasingDevice =
             DeviceId $ mk $
             textFromPath cur "releasingDevice" ["deviceIdentifier"]
+          }
+
+        "CSTAErrorCode" ->
+          CSTAErrorCodeResponse
+          { errorText =
+            let
+              msg = T.concat $ (cur $// content)
+              err = case map node (cur $/ checkElement (const True)) of
+                      (NodeElement el:_) ->
+                        nameLocalName $ elementName el
+                      _ -> "CSTAErrorCode"
+            in
+              T.concat [err, "/", msg]
           }
 
         _ -> UnknownResponse xml
