@@ -5,12 +5,6 @@
 
 WebSockets interface for DMCC.
 
-TODO:
-
-- Describe DMCC-WebSockets API
-
-- Report agent state after handshake
-
 -}
 
 module Main where
@@ -21,7 +15,7 @@ import           Control.Exception
 import           Control.Monad
 import           Control.Concurrent.STM
 
-import           Data.Aeson
+import           Data.Aeson hiding (Error)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Configurator as Cfg
@@ -51,6 +45,7 @@ data Config =
   , apiUser    :: Text
   , apiPass    :: Text
   , whUrl      :: Maybe String
+  , refDelay   :: Int
   , switchName :: SwitchName
   , logLibrary :: Bool
   }
@@ -84,6 +79,7 @@ realMain config = do
       <*> Cfg.require c "api-user"
       <*> Cfg.require c "api-pass"
       <*> Cfg.lookup  c "web-hook-handler-url"
+      <*> Cfg.lookupDefault 0 c "agent-release-delay"
       <*> (SwitchName <$> Cfg.require c "switch-name")
       <*> Cfg.require c "log-library"
 
@@ -114,9 +110,13 @@ releaseAgentRef ah refs = do
   flip onException (atomically $ putTMVar refs r) $
     case Map.lookup ah r of
       Just cnt -> do
-        newR <- if cnt > 1
-                then return $ Map.insert ah (cnt - 1) r
-                else (releaseAgent ah >> (return $ Map.delete ah r))
+        newR <-
+          if cnt > 1
+          then return $ Map.insert ah (cnt - 1) r
+          else (releaseAgent ah >>
+                (syslog Debug $
+                 "Agent " ++ show ah ++ " is no longer controlled") >>
+                (return $ Map.delete ah r))
         atomically $ putTMVar refs newR
         return $ cnt - 1
       Nothing -> error $ "Releasing unknown agent " ++ show ah
@@ -151,6 +151,8 @@ avayaApplication cfg as refs pending = do
                 Right ah' -> return ah'
                 Left err -> do
                   sendTextData conn $ encode $ RequestError $ show err
+                  syslog Error $ "Could not control agent for " ++
+                    label ++ ": " ++ show err
                   throwIO err
         -- Increment reference counter
         let oldCount = fromMaybe 0 $ Map.lookup ah r
@@ -159,7 +161,11 @@ avayaApplication cfg as refs pending = do
         refReport ext' (oldCount + 1)
         -- Decrement reference counter when the connection dies or any
         -- other exception happens
-        flip finally (releaseAgentRef ah refs >>= refReport ext') $ do
+        let disconnectionHandler = do
+              syslog Debug $ "Websocket closed for " ++ label
+              threadDelay $ refDelay cfg * 1000000
+              releaseAgentRef ah refs >>= refReport ext'
+        flip finally disconnectionHandler $ do
           s <- getAgentState ah
           sendTextData conn $ encode s
           -- Event/action loops
@@ -168,12 +174,7 @@ avayaApplication cfg as refs pending = do
                do
                  syslog Debug ("Event for " ++ label ++ ": " ++ show ev)
                  sendTextData conn $ encode ev)
-          handle
-            (\e ->
-               do
-                 killThread evThread
-                 syslog Debug ("Exception for " ++ label ++ ": " ++
-                               show (e :: ConnectionException))) $
+          flip onException (killThread evThread) $
             forever $ do
               msg <- receiveData conn
               case decode msg of
