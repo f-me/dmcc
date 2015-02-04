@@ -125,8 +125,11 @@ instance Show Agent where
 type AgentHandle = (AgentId, Session)
 
 
-data AgentError = UnknownAgent AgentId
-                deriving (Data, Typeable, Show)
+data AgentError
+  = DeviceError String
+  | MonitoringError String
+  | UnknownAgent AgentId
+  deriving (Data, Typeable, Show)
 
 
 instance (Exception AgentError)
@@ -174,28 +177,42 @@ controlAgent switch ext as = do
 
   case prev of
     Just a -> return (a, as)
-    Nothing ->
-      handle (\e ->
-                releaseAgentLock (aid, as) >>
-                (throwIO (e :: IOException))) $
+    Nothing -> flip onException (releaseAgentLock (aid, as)) $
       do
         -- Get Avaya info for this agent (note that requests are not
         -- attached to the agent (Nothing) as it has not been inserted
         -- in the agent map of the session yet).
-
-        Rs.GetDeviceIdResponse{..} <-
+        gdiRsp <-
           sendRequestSync (dmccHandle as) Nothing $
           Rq.GetDeviceId
           { switchName = switch
           , extension = ext
           }
 
-        Rs.MonitorStartResponse{..} <-
+        device <-
+          case gdiRsp of
+            Rs.GetDeviceIdResponse device ->
+              return device
+            Rs.CSTAErrorCodeResponse errorCode ->
+              throwIO $ DeviceError $ unpack errorCode
+            _ ->
+              throwIO $ DeviceError "Bad GetDeviceId response"
+
+        msrRsp <-
           sendRequestSync (dmccHandle as) Nothing $
           Rq.MonitorStart
           { deviceObject = device
           , acceptedProtocol = protocolVersion as
           }
+
+        monitorCrossRefID <-
+          case msrRsp of
+            Rs.MonitorStartResponse monitorCrossRefID ->
+              return monitorCrossRefID
+            Rs.CSTAErrorCodeResponse errorCode ->
+              throwIO $ MonitoringError $ unpack errorCode
+            _ ->
+              throwIO $ DeviceError "Bad MonitorStart response"
 
         -- Setup action and event processing for this agent
 
