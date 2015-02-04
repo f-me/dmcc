@@ -80,7 +80,7 @@ $(makeLenses ''AgentState)
 -- to user.
 data Event = TelephonyEvent{dmccEvent :: Rs.Event, newState :: AgentState}
            -- ^ A telephony-related event, along with updated state.
-           | RequestError{errorText :: Text}
+           | RequestError{errorText :: String}
            -- ^ An error caused by a request from this agent.
            deriving Show
 
@@ -160,7 +160,7 @@ releaseAgentLock (aid, as) =
 controlAgent :: SwitchName
              -> Extension
              -> Session
-             -> IO AgentHandle
+             -> IO (Either AgentError AgentHandle)
 controlAgent switch ext as = do
   let aid = AgentId (switch, ext)
   -- Check if agent already exists
@@ -176,8 +176,8 @@ controlAgent switch ext as = do
           False -> placeAgentLock (aid, as) >> return Nothing
 
   case prev of
-    Just a -> return (a, as)
-    Nothing -> flip onException (releaseAgentLock (aid, as)) $
+    Just a -> return $ Right (a, as)
+    Nothing -> try $ flip onException (releaseAgentLock (aid, as)) $
       do
         -- Get Avaya info for this agent (note that requests are not
         -- attached to the agent (Nothing) as it has not been inserted
@@ -315,7 +315,7 @@ processAgentEvent device state eventChan wh rs = do
   now <- getCurrentTime
   case rs of
     Rs.CSTAErrorCodeResponse err ->
-      atomically $ writeTChan eventChan $ RequestError err
+      atomically $ writeTChan eventChan $ RequestError $ unpack err
     Rs.EventResponse _ ev -> do
       (updState, report) <- atomically $ do
         -- Return True if the event must be reported to agent event chan

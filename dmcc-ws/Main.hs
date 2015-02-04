@@ -146,7 +146,12 @@ avayaApplication cfg as refs pending = do
       flip onException (atomically $ putTMVar refs r) $ do
         -- Assume that all agents are on the same switch
         let ext' = Extension ext
-        ah <- controlAgent (switchName cfg) ext' as
+        cRsp <- controlAgent (switchName cfg) ext' as
+        ah <- case cRsp of
+                Right ah' -> return ah'
+                Left err -> do
+                  sendTextData conn $ encode $ RequestError $ show err
+                  throwIO err
         -- Increment reference counter
         let oldCount = fromMaybe 0 $ Map.lookup ah r
         atomically $ putTMVar refs (Map.insert ah (oldCount + 1) r)
