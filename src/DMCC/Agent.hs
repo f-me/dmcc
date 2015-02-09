@@ -340,6 +340,7 @@ processAgentEvent device state eventChan wh rs = do
               (\call -> Map.insert callId call{answered = Just now}) $
               "Established connection to an undelivered call"
             return True
+          Rs.FailedEvent{..} -> return True
           -- ConnectionCleared event arrives when line is put on HOLD too.
           -- A real call-ending ConnectionCleared is distinguished by its
           -- releasingDevice value.

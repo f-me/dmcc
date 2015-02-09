@@ -301,6 +301,7 @@ toXml rq = renderLBS def $ case rq of
           <conferenced>true
           <delivered>true
           <established>true
+          <failed>true
           <held>true
           <originated>true
           <retrieved>true

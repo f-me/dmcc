@@ -73,6 +73,9 @@ data Event =
   | EstablishedEvent
     { callId :: CallId
     }
+  | FailedEvent
+    { callId :: CallId
+    }
   | ConnectionClearedEvent
     { callId :: CallId
     , releasingDevice :: DeviceId
@@ -155,6 +158,13 @@ fromXml xml
           EstablishedEvent
           { callId =
             CallId $ textFromPath cur "establishedConnection" ["callId"]
+          }
+
+        "FailedEvent" ->
+          EventResponse (text cur "monitorCrossRefID") $
+          FailedEvent
+          { callId =
+            CallId $ textFromPath cur "failedConnection" ["callId"]
           }
 
         "HeldEvent" ->
