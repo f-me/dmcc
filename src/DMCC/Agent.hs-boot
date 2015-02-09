@@ -19,7 +19,7 @@ type AgentHandle = (AgentId, Session)
 monitorId :: Agent -> Text
 
 
-inputChan :: Agent -> TChan Rs.Response
+rspChan :: Agent -> TChan Rs.Response
 
 
 releaseAgent :: AgentHandle -> IO ()

@@ -43,6 +43,9 @@ data Response
   | MonitorStartResponse
     { monitorCrossRefID :: Text
     }
+  | MakeCallResponse
+    { newCallId :: CallId
+    }
   | EventResponse
     { monitorCrossRefID :: Text
     , event :: Event
@@ -118,6 +121,11 @@ fromXml xml
         "MonitorStartResponse" ->
           MonitorStartResponse
           {monitorCrossRefID = text cur "monitorCrossRefID"
+          }
+
+        "MakeCallResponse" ->
+          MakeCallResponse
+          { newCallId = CallId $ textFromPath cur "callingDevice" ["callId"]
           }
 
         "DeliveredEvent" ->

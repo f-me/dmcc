@@ -179,7 +179,7 @@ startSession (host, port) conn user pass whUrl lopts = withOpenSSL $ do
                    return $ (`Map.lookup` ags) =<< aid
                  _ -> return Nothing
         case ag' of
-          Just ag -> atomically $ writeTChan (inputChan ag) rsp
+          Just ag -> atomically $ writeTChan (rspChan ag) rsp
           -- Error/event received for an unknown agent?
           Nothing -> return ()
       _ -> return ()
