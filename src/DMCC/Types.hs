@@ -72,6 +72,7 @@ data Call = Call
   , answered :: Maybe UTCTime
   -- ^ When did another party answer this call?
   , held :: Bool
+  , failed :: Bool
   }
   deriving Show
 

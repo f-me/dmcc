@@ -260,7 +260,7 @@ agentAction action (aid@(AgentId (switch, _)), as) = do
           case mcr of
             Rs.MakeCallResponse callId -> do
               now <- getCurrentTime
-              let call = Call Out now [Rs.device rspDest] Nothing False
+              let call = Call Out now [Rs.device rspDest] Nothing False False
               atomically $ do
                 modifyTVar' state (calls %~ Map.insert callId call)
                 readTVar state
@@ -319,7 +319,7 @@ processAgentEvent device state eventChan wh rs = do
             modifyTVar' state (calls %~ Map.insert callId call)
             return True
             where
-              call = Call Out now [calledDevice] Nothing False
+              call = Call Out now [calledDevice] Nothing False False
           -- New call
           Rs.DeliveredEvent{..} -> do
             s <- readTVar state
@@ -334,13 +334,17 @@ processAgentEvent device state eventChan wh rs = do
               (dir, interloc) = if callingDevice == device
                                 then (Out, calledDevice)
                                 else (In, callingDevice)
-              call = Call dir now [interloc] Nothing False
+              call = Call dir now [interloc] Nothing False False
           Rs.EstablishedEvent{..} -> do
             callOperation callId
               (\call -> Map.insert callId call{answered = Just now}) $
               "Established connection to an undelivered call"
             return True
-          Rs.FailedEvent{..} -> return True
+          Rs.FailedEvent{..} -> do
+            callOperation callId
+              (\call -> Map.insert callId call{failed = True}) $
+              "Failed an unknown call"
+            return True
           -- ConnectionCleared event arrives when line is put on HOLD too.
           -- A real call-ending ConnectionCleared is distinguished by its
           -- releasingDevice value.
