@@ -211,7 +211,7 @@ controlAgent switch ext as = do
         rspThread <-
           forkIO $ forever $
           (atomically $ readTChan rspChan) >>=
-          processAgentEvent device state eventChan (webHook as)
+          processAgentEvent aid device state eventChan (webHook as)
 
         let ag = Agent
                  device
@@ -282,13 +282,14 @@ agentAction action (aid@(AgentId (switch, _)), as) = do
 
 -- | Process DMCC API events/errors for this agent to change its state
 -- and broadcast events further.
-processAgentEvent :: DeviceId
+processAgentEvent :: AgentId
+                  -> DeviceId
                   -> TVar AgentState
                   -> TChan Event
                   -> Maybe (HTTP.Request, HTTP.Manager)
                   -> Rs.Response
                   -> IO ()
-processAgentEvent device state eventChan wh rs = do
+processAgentEvent aid device state eventChan wh rs = do
   let
     -- | Atomically modify one of the calls.
     callOperation :: CallId
@@ -393,7 +394,8 @@ processAgentEvent device state eventChan wh rs = do
         (Just (req, mgr), True) ->
           void $ httpNoBody req{requestBody = rqBody, method = "POST"} mgr
           where
-            rqBody = HTTP.RequestBodyLBS $ A.encode $ TelephonyEvent ev updState
+            rqBody = HTTP.RequestBodyLBS $ A.encode $
+                     WHEvent aid (TelephonyEvent ev updState)
         _ -> return ()
     -- All other responses cannot arrive to an agent
     _ -> return ()
