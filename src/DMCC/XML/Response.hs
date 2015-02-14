@@ -26,6 +26,7 @@ import           Text.XML.Cursor
 import           DMCC.Types
 
 
+-- | DMCC response to a request.
 data Response
   = UnknownResponse ByteString
   | MalformedResponse ByteString SomeException
@@ -57,6 +58,7 @@ data Response
   deriving Show
 
 
+-- | DMCC event.
 data Event =
   UnknownEvent
   -- | Precedes every established/cleared event.

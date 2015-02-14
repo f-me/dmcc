@@ -24,11 +24,10 @@ module DMCC
   , Action(..)
   , agentAction
 
-  , Event(..)
+  , AgentEvent(..)
+  , AgentState(..)
   , handleEvents
   , getAgentState
-
-  , WHEvent(..)
 
   , module DMCC.Types
   )

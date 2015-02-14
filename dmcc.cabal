@@ -48,6 +48,7 @@ Library
   Hs-source-dirs: src
   Exposed-modules:
     DMCC
+    DMCC.WebHook
 
   Other-modules:
     DMCC.Agent

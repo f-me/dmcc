@@ -78,20 +78,20 @@ $(makeLenses ''AgentState)
 -- | Events/errors are published to external clients of the
 -- agents and may be used by agent subscribers to provide information
 -- to user.
-data Event = TelephonyEvent{dmccEvent :: Rs.Event, newState :: AgentState}
-           -- ^ A telephony-related event, along with updated state.
-           | RequestError{errorText :: String}
-           -- ^ An error caused by a request from this agent.
-           deriving Show
+data AgentEvent = TelephonyEvent{dmccEvent :: Rs.Event, newState :: AgentState}
+                -- ^ A telephony-related event, along with updated state.
+                | RequestError{errorText :: String}
+                -- ^ An error caused by a request from this agent.
+                deriving Show
 
 
-$(deriveJSON defaultOptions ''Event)
+$(deriveJSON defaultOptions ''AgentEvent)
 
 
 -- | Web hook event.
 data WHEvent = WHEvent
     { agentId :: AgentId
-    , event :: Event
+    , event :: AgentEvent
     }
     deriving Show
 
@@ -107,7 +107,7 @@ data Agent = Agent
     -- ^ Input chan for XML responses for this agent (including
     -- events).
     , rspThread :: ThreadId
-    , eventChan :: TChan Event
+    , eventChan :: TChan AgentEvent
     -- ^ Broadcasting chan with agent events.
     , state :: TVar AgentState
     }
@@ -285,7 +285,7 @@ agentAction action (aid@(AgentId (switch, _)), as) = do
 processAgentEvent :: AgentId
                   -> DeviceId
                   -> TVar AgentState
-                  -> TChan Event
+                  -> TChan AgentEvent
                   -> Maybe (HTTP.Request, HTTP.Manager)
                   -> Rs.Response
                   -> IO ()
@@ -325,8 +325,9 @@ processAgentEvent aid device state eventChan wh rs = do
           Rs.DeliveredEvent{..} -> do
             s <- readTVar state
             case Map.member callId $ _calls s of
-              -- DeliveredEvent arrives after OriginatedEvent, but we
-              -- keep the original call information
+              -- DeliveredEvent arrives after OriginatedEvent for
+              -- outgoing calls too, but we keep the original call
+              -- information.
               True -> return False
               False -> do
                 modifyTVar' state (calls %~ Map.insert callId call)
@@ -434,7 +435,7 @@ releaseAgent (aid, as) = do
         return ()
 
 
-handleEvents :: AgentHandle -> (Event -> IO ()) -> IO ThreadId
+handleEvents :: AgentHandle -> (AgentEvent -> IO ()) -> IO ThreadId
 handleEvents (aid, as) handler = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
