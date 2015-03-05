@@ -180,8 +180,7 @@ avayaApplication cfg as refs pending = do
               case decode msg of
                 Just act -> do
                   syslog Debug $ "Action from " ++ label ++ ": " ++ show act
-                  newState <- agentAction act ah
-                  sendTextData conn $ encode newState
+                  agentAction act ah
                 _ -> syslog Debug $
                      "Unrecognized message from " ++ label ++ ": " ++
                      BL.unpack msg

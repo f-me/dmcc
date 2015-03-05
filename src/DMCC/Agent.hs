@@ -103,18 +103,20 @@ $(deriveJSON defaultOptions ''WHEvent)
 data Agent = Agent
     { deviceId :: DeviceId
     , monitorId :: Text
+    , actionChan :: TChan Action
+    -- ^ Actions performed by the agent.
+    , actionThread :: ThreadId
     , rspChan :: TChan Rs.Response
     -- ^ Input chan for XML responses for this agent (including
     -- events).
     , rspThread :: ThreadId
     , eventChan :: TChan AgentEvent
-    -- ^ Broadcasting chan with agent events.
     , state :: TVar AgentState
     }
 
 
 instance Show Agent where
-  show (Agent (DeviceId d) m _ _ _ _) =
+  show (Agent (DeviceId d) m _ _ _ _ _ _) =
     "Agent{deviceId=" ++ unpack (original d) ++
     ", monitorId=" ++ unpack m ++
     "}"
@@ -131,6 +133,15 @@ data AgentError
 
 
 instance (Exception AgentError)
+
+
+-- | Command an agent to do something.
+agentAction :: Action -> AgentHandle -> IO ()
+agentAction cmd (aid, as) = do
+  ags <- readTVarIO (agents as)
+  case Map.lookup aid ags of
+    Just (Agent{..}) -> atomically $ writeTChan actionChan cmd
+    Nothing -> error "No such agent"
 
 
 placeAgentLock :: AgentHandle -> STM ()
@@ -205,6 +216,13 @@ controlAgent switch ext as = do
 
         -- Setup action and event processing for this agent
         state <- newTVarIO $ AgentState Map.empty
+
+        actionChan <- newTChanIO
+        actionThread <-
+          forkIO $ forever $
+          (atomically $ readTChan actionChan) >>=
+          processAgentAction aid device state as
+
         eventChan <- newBroadcastTChanIO
 
         rspChan <- newTChanIO
@@ -216,6 +234,8 @@ controlAgent switch ext as = do
         let ag = Agent
                  device
                  monitorCrossRefID
+                 actionChan
+                 actionThread
                  rspChan
                  rspThread
                  eventChan
@@ -225,59 +245,56 @@ controlAgent switch ext as = do
         return (aid, as)
 
 
--- | Command an agent to do something and return its new state.
+-- | Translate agent actions into actual DMCC API requests.
 --
--- TODO Allow agents to control only their own calls.
-agentAction :: Action -> AgentHandle -> IO AgentState
-agentAction action (aid@(AgentId (switch, _)), as) = do
-  ags <- readTVarIO (agents as)
-  case Map.lookup aid ags of
-    Nothing -> error "No such agent"
-    Just (Agent{..}) -> do
-      let
-        srq = sendRequestSync (dmccHandle as) (Just aid)
-        readState = atomically $ readTVar state
-        simpleRequest rq cid = do
-          void $ srq $ rq deviceId cid (protocolVersion as)
-          readState
-        simpleRequest2 rq cid1 cid2 = do
-          void $ srq $ rq deviceId cid1 cid2 (protocolVersion as)
-          readState
-      case action of
-        MakeCall toNumber -> do
-          rspDest <-
-            sendRequestSync (dmccHandle as) (Just aid) $
-            Rq.GetThirdPartyDeviceId
-            -- Assume destination switch is the same as agent's
-            { switchName = switch
-            , extension = toNumber
-            }
-          mcr <- sendRequestSync (dmccHandle as) (Just aid) $
-            Rq.MakeCall
-            deviceId
-            (Rs.device rspDest)
-            (protocolVersion as)
-          case mcr of
-            Rs.MakeCallResponse callId -> do
-              now <- getCurrentTime
-              let call = Call Out now [Rs.device rspDest] Nothing False False
-              atomically $ do
-                modifyTVar' state (calls %~ Map.insert callId call)
-                readTVar state
-            _ -> readState
-        AnswerCall callId   -> simpleRequest Rq.AnswerCall callId
-        HoldCall callId     -> simpleRequest Rq.HoldCall callId
-        RetrieveCall callId -> simpleRequest Rq.RetrieveCall callId
-        ConferenceCall activeCall heldCall ->
-          simpleRequest2 Rq.ConferenceCall activeCall heldCall
-        TransferCall activeCall heldCall ->
-          simpleRequest2 Rq.TransferCall activeCall heldCall
-        EndCall callId -> simpleRequest Rq.ClearConnection callId
-        -- Synchronous to avoid missed digits if actions queue up
-        SendDigits{..}  -> do
-          void $ srq $
-            Rq.GenerateDigits digits deviceId callId (protocolVersion as)
-          readState
+-- TODO Allow agents to control only own calls.
+processAgentAction :: AgentId
+                   -> DeviceId
+                   -> TVar AgentState
+                   -> Session
+                   -> Action
+                   -> IO ()
+processAgentAction aid@(AgentId (switch, _)) device state as action =
+  let
+    arq = sendRequestAsync (dmccHandle as) (Just aid)
+    simpleRequest rq cid =
+      arq $ rq device cid (protocolVersion as)
+    simpleRequest2 rq cid1 cid2 =
+      arq $ rq device cid1 cid2 (protocolVersion as)
+  in
+  case action of
+    MakeCall toNumber -> do
+      rspDest <-
+        sendRequestSync (dmccHandle as) (Just aid) $
+        Rq.GetThirdPartyDeviceId
+        -- Assume destination switch is the same as agent's
+        { switchName = switch
+        , extension = toNumber
+        }
+      mcr <- sendRequestSync (dmccHandle as) (Just aid) $
+        Rq.MakeCall
+        device
+        (Rs.device rspDest)
+        (protocolVersion as)
+      case mcr of
+        Rs.MakeCallResponse callId -> do
+          now <- getCurrentTime
+          let call = Call Out now [Rs.device rspDest] Nothing False False
+          atomically $ modifyTVar' state (calls %~ Map.insert callId call)
+        _ -> return ()
+    AnswerCall callId   -> simpleRequest Rq.AnswerCall callId
+    HoldCall callId     -> simpleRequest Rq.HoldCall callId
+    RetrieveCall callId -> simpleRequest Rq.RetrieveCall callId
+    ConferenceCall activeCall heldCall ->
+      simpleRequest2 Rq.ConferenceCall activeCall heldCall
+    TransferCall activeCall heldCall ->
+      simpleRequest2 Rq.TransferCall activeCall heldCall
+    EndCall callId -> simpleRequest Rq.ClearConnection callId
+    -- Synchronous to avoid missed digits if actions queue up
+    SendDigits{..}  ->
+      void $
+      sendRequestSync (dmccHandle as) (Just aid) $
+      Rq.GenerateDigits digits device callId (protocolVersion as)
 
 
 -- | Process DMCC API events/errors for this agent to change its state
@@ -430,6 +447,7 @@ releaseAgent (aid, as) = do
           }
         sendRequestSync (dmccHandle as) (Just aid) $
           Rq.ReleaseDeviceId{device = deviceId ag}
+        killThread (actionThread ag)
         atomically $ modifyTVar' (agents as) (Map.delete aid)
         releaseAgentLock (aid, as)
         return ()
