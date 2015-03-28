@@ -135,7 +135,7 @@ avayaApplication cfg as refs pending = do
         syslog Debug $ show ext ++ " has " ++ show cnt ++ " references"
   case pathArg of
     [Nothing, Just ext] -> do
-      -- Somewhat unique label for this connection
+      -- A readable label for this connection for debugging purposes
       token <- randomRIO (1, 16 ^ (4 :: Int))
       let label = printf "%d/%04x" ext (token :: Int)
       conn <- acceptRequest pending
@@ -159,29 +159,30 @@ avayaApplication cfg as refs pending = do
         atomically $ putTMVar refs (Map.insert ah (oldCount + 1) r)
         syslog Debug $ "Controlling agent " ++ show ah ++ " from " ++ label
         refReport ext' (oldCount + 1)
-        -- Decrement reference counter when the connection dies or any
-        -- other exception happens
+        -- Agent events loop
+        evThread <- handleEvents ah
+          (\ev ->
+             do
+               syslog Debug ("Event for " ++ label ++ ": " ++ show ev)
+               sendTextData conn $ encode ev)
         let disconnectionHandler = do
               syslog Debug $ "Websocket closed for " ++ label
+              killThread evThread
               threadDelay $ refDelay cfg * 1000000
+              -- Decrement reference counter when the connection dies or any
+              -- other exception happens
               releaseAgentRef ah refs >>= refReport ext'
         flip finally disconnectionHandler $ do
           s <- getAgentState ah
           sendTextData conn $ encode s
-          -- Event/action loops
-          evThread <- handleEvents ah
-            (\ev ->
-               do
-                 syslog Debug ("Event for " ++ label ++ ": " ++ show ev)
-                 sendTextData conn $ encode ev)
-          flip onException (killThread evThread) $
-            forever $ do
-              msg <- receiveData conn
-              case decode msg of
-                Just act -> do
-                  syslog Debug $ "Action from " ++ label ++ ": " ++ show act
-                  agentAction act ah
-                _ -> syslog Debug $
-                     "Unrecognized message from " ++ label ++ ": " ++
-                     BL.unpack msg
+          -- Agent actions loop
+          forever $ do
+            msg <- receiveData conn
+            case decode msg of
+              Just act -> do
+                syslog Debug $ "Action from " ++ label ++ ": " ++ show act
+                agentAction act ah
+              _ -> syslog Debug $
+                   "Unrecognized message from " ++ label ++ ": " ++
+                   BL.unpack msg
     _ -> rejectRequest pending "Malformed extension number"
