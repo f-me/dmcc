@@ -199,7 +199,7 @@ startSession (host, port) conn user pass whUrl lopts = withOpenSSL $ do
   Rs.StartApplicationSessionPosResponse{..} <- sendRequestSync h Nothing
     $ Rq.StartApplicationSession
       { applicationId = ""
-      , requestedProtocolVersion = Rq.DMCC_4_2
+      , requestedProtocolVersion = Rq.DMCC_6_2
       , userName = user
       , password = pass
       , sessionCleanupDelay = 80

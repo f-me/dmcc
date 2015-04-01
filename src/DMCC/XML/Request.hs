@@ -102,14 +102,13 @@ data Request
   deriving Show
 
 
-data ProtocolVersion = DMCC_4_2 | DMCC_6_1 | DMCC_6_2 | DMCC_6_3
+data ProtocolVersion = DMCC_6_1 | DMCC_6_2 | DMCC_6_3
                        deriving Show
 
 
 getProtocolString :: ProtocolVersion -> Text
 getProtocolString ver
   = case ver of
-    DMCC_4_2 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv3"
     DMCC_6_1 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv5"
     DMCC_6_2 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv6"
     DMCC_6_3 -> "http://www.ecma-international.org/standards/ecma-323/csta/ed3/priv7"
