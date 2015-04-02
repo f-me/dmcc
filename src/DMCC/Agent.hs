@@ -277,9 +277,9 @@ processAgentAction aid@(AgentId (switch, _)) device state as action =
         (Rs.device rspDest)
         (protocolVersion as)
       case mcr of
-        Rs.MakeCallResponse callId -> do
+        Rs.MakeCallResponse callId ucid -> do
           now <- getCurrentTime
-          let call = Call Out now [Rs.device rspDest] Nothing False False
+          let call = Call Out ucid now [Rs.device rspDest] Nothing False False
           atomically $ modifyTVar' state (calls %~ Map.insert callId call)
         _ -> return ()
     AnswerCall callId   -> simpleRequest Rq.AnswerCall callId
@@ -333,11 +333,13 @@ processAgentEvent aid device state eventChan wh rs = do
         -- Return True if the event must be reported to agent event chan
         report <- case ev of
           -- New outgoing call
-          Rs.OriginatedEvent{..} -> do
-            modifyTVar' state (calls %~ Map.insert callId call)
+          Rs.OriginatedEvent{..} ->
+            -- MakeCallResponse handler should have already added a
+            -- new entry to calls list. OriginatedEvent does not
+            -- contain any new data compared to MakeCallResponse, so
+            -- there's no processing here. However, we report new
+            -- agent state.
             return True
-            where
-              call = Call Out now [calledDevice] Nothing False False
           -- New call
           Rs.DeliveredEvent{..} -> do
             s <- readTVar state
@@ -353,7 +355,7 @@ processAgentEvent aid device state eventChan wh rs = do
               (dir, interloc) = if callingDevice == device
                                 then (Out, calledDevice)
                                 else (In, callingDevice)
-              call = Call dir now [interloc] Nothing False False
+              call = Call dir ucid now [interloc] Nothing False False
           Rs.EstablishedEvent{..} -> do
             callOperation callId
               (\call -> Map.insert callId call{answered = Just now}) $

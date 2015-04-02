@@ -46,6 +46,7 @@ data Response
     }
   | MakeCallResponse
     { newCallId :: CallId
+    , newUcid :: UCID
     }
   | EventResponse
     { monitorCrossRefID :: Text
@@ -64,6 +65,7 @@ data Event =
   -- | Precedes every established/cleared event.
   | DeliveredEvent
     { callId :: CallId
+    , ucid :: UCID
     , callingDevice :: DeviceId
     , calledDevice :: DeviceId
     }
@@ -83,9 +85,11 @@ data Event =
     , releasingDevice :: DeviceId
     }
   | HeldEvent
-    {callId :: CallId}
+    { callId :: CallId
+    }
   | RetrievedEvent
-    {callId :: CallId}
+    { callId :: CallId
+    }
   | ConferencedEvent
     { primaryOldCall :: CallId
     , secondaryOldCall :: CallId
@@ -131,6 +135,8 @@ fromXml xml
         "MakeCallResponse" ->
           MakeCallResponse
           { newCallId = CallId $ textFromPath cur "callingDevice" ["callId"]
+          , newUcid =
+            UCID $ text cur "globallyUniqueCallLinkageID"
           }
 
         "DeliveredEvent" ->
@@ -138,6 +144,8 @@ fromXml xml
           DeliveredEvent
           { callId =
             CallId $ textFromPath cur "connection" ["callId"]
+          , ucid =
+            UCID $ text cur "globallyUniqueCallLinkageID"
           , callingDevice =
             DeviceId $ mk $ textFromPath cur "callingDevice" ["deviceIdentifier"]
           , calledDevice =
@@ -226,14 +234,24 @@ fromXml xml
 
         _ -> UnknownResponse xml
 
+
 text c n = textFromPath c n []
+
 
 decimal c n = let txt = text c n
   in case T.decimal txt of
     Right (x,"") -> x
     _ -> error $ "Can't parse as decimal: " ++ show txt
 
+
+-- | Extract contents of the first element which matches provided
+-- path (@rootName:extraNames@)
 textFromPath cur rootName extraNames =
-  T.concat $
-  cur $//
-  ((foldl1' (&/) (Data.List.map laxElement (rootName:extraNames))) &/ content)
+  if null contents
+  then ""
+  else head contents
+  where
+    contents =
+      cur $//
+      ((foldl1' (&/) (Data.List.map laxElement (rootName:extraNames)))
+       &/ content)

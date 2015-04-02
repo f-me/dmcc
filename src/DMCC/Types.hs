@@ -38,6 +38,12 @@ newtype CallId =
   deriving (Eq, Ord, Show, FromJSON, ToJSON)
 
 
+-- | Globally unique call ID.
+newtype UCID =
+  UCID Text
+  deriving (Eq, Ord, Show, FromJSON, ToJSON)
+
+
 newtype Extension =
   Extension Int
   deriving (Num, Enum, Real, Integral,
@@ -66,6 +72,7 @@ $(deriveJSON defaultOptions ''CallDirection)
 
 data Call = Call
   { direction :: CallDirection
+  , ucid :: UCID
   , start :: UTCTime
   -- ^ When did call came into existence?
   , interlocutors :: [DeviceId]
