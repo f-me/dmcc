@@ -354,7 +354,7 @@ processAgentEvent aid device state eventChan wh rs = do
             where
               (dir, interloc) = if callingDevice == device
                                 then (Out, calledDevice)
-                                else (In, callingDevice)
+                                else (In distributingVdn, callingDevice)
               call = Call dir ucid now [interloc] Nothing False False
           Rs.EstablishedEvent{..} -> do
             callOperation callId

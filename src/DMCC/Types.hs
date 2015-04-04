@@ -62,12 +62,14 @@ newtype AgentId =
   deriving (Data, Typeable, Eq, Ord, Show, FromJSON, ToJSON)
 
 
-data CallDirection =
-  In | Out
-  deriving (Eq, Show)
+data CallDirection = In { vdn :: DeviceId }
+                   | Out
+                   deriving (Eq, Show)
 
 
-$(deriveJSON defaultOptions ''CallDirection)
+$(deriveJSON
+  defaultOptions{sumEncoding = defaultTaggedObject{tagFieldName="dir"}}
+  ''CallDirection)
 
 
 data Call = Call

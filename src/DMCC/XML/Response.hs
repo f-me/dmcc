@@ -65,6 +65,7 @@ data Event =
   -- | Precedes every established/cleared event.
   | DeliveredEvent
     { callId :: CallId
+    , distributingVdn :: DeviceId
     , ucid :: UCID
     , callingDevice :: DeviceId
     , calledDevice :: DeviceId
@@ -144,6 +145,9 @@ fromXml xml
           DeliveredEvent
           { callId =
             CallId $ textFromPath cur "connection" ["callId"]
+          , distributingVdn =
+            DeviceId $ mk $
+            textFromPath cur "distributingVDN" ["deviceIdentifier"]
           , ucid =
             UCID $ text cur "globallyUniqueCallLinkageID"
           , callingDevice =
