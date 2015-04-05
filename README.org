@@ -1,3 +1,0 @@
-* Running dmcc-ws server
-
-  See example configuration file at dmcc-ws/example.cfg
