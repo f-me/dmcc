@@ -95,6 +95,9 @@ data AgentState = Ready
                 deriving Show
 
 
+$(deriveJSON defaultOptions ''AgentState)
+
+
 data LoggingOptions = LoggingOptions
   { ident :: String
   }

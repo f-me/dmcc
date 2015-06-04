@@ -46,6 +46,7 @@ data Action = MakeCall{number :: Extension}
             | ConferenceCall{activeCall :: CallId, heldCall :: CallId}
             | TransferCall{activeCall :: CallId, heldCall :: CallId}
             | SendDigits{callId :: CallId, digits :: Text}
+            | SetState{newState :: AgentState}
             deriving Show
 
 
@@ -258,10 +259,10 @@ processAgentAction :: AgentId
 processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
   let
     arq = sendRequestAsync (dmccHandle as) (Just aid)
-    simpleRequest rq cid =
-      arq $ rq device cid (protocolVersion as)
-    simpleRequest2 rq cid1 cid2 =
-      arq $ rq device cid1 cid2 (protocolVersion as)
+    simpleRequest rq arg =
+      arq $ rq device arg (protocolVersion as)
+    simpleRequest2 rq arg1 arg2 =
+      arq $ rq device arg1 arg2 (protocolVersion as)
   in
   case action of
     MakeCall toNumber -> do
@@ -296,6 +297,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
       void $
       sendRequestSync (dmccHandle as) (Just aid) $
       Rq.GenerateDigits digits device callId (protocolVersion as)
+    SetState newState   -> simpleRequest Rq.SetAgentState newState
 
 
 -- | Process DMCC API events/errors for this agent to change its snapshot
