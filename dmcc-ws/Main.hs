@@ -173,7 +173,7 @@ avayaApplication cfg as refs pending = do
               -- other exception happens
               releaseAgentRef ah refs >>= refReport ext'
         flip finally disconnectionHandler $ do
-          s <- getAgentState ah
+          s <- getAgentSnapshot ah
           sendTextData conn $ encode s
           -- Agent actions loop
           forever $ do

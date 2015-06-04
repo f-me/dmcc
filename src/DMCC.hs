@@ -27,7 +27,7 @@ module DMCC
   , AgentEvent(..)
   , AgentState(..)
   , handleEvents
-  , getAgentState
+  , getAgentSnapshot
 
   , module DMCC.Types
   )

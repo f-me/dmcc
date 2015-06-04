@@ -54,32 +54,33 @@ $(deriveFromJSON
   ''Action)
 
 
-data AgentState = AgentState
+data AgentSnapshot = AgentSnapshot
     { _calls :: Map.Map CallId Call
     }
     deriving Show
 
 
-instance ToJSON AgentState where
+instance ToJSON AgentSnapshot where
   toJSON s =
     object [ "calls" A..= (Map.mapKeys (\(CallId t) -> t) $ _calls s)
            ]
 
 
-instance FromJSON AgentState where
+instance FromJSON AgentSnapshot where
   parseJSON (Object o) =
-    (AgentState . Map.mapKeys CallId) `liftM` (o .: "calls")
-  parseJSON _ = fail "Could not parse AgentState from non-object"
+    (AgentSnapshot . Map.mapKeys CallId) `liftM` (o .: "calls")
+  parseJSON _ = fail "Could not parse AgentSnapshot from non-object"
 
 
-$(makeLenses ''AgentState)
+$(makeLenses ''AgentSnapshot)
 
 
 -- | Events/errors are published to external clients of the
 -- agents and may be used by agent subscribers to provide information
 -- to user.
-data AgentEvent = TelephonyEvent{dmccEvent :: Rs.Event, newState :: AgentState}
-                -- ^ A telephony-related event, along with updated state.
+data AgentEvent = TelephonyEvent{dmccEvent :: Rs.Event, newSnapshot :: AgentSnapshot}
+                -- ^ A telephony-related event, along with an updated
+                -- snapshot.
                 | RequestError{errorText :: String}
                 -- ^ An error caused by a request from this agent.
                 deriving Show
@@ -111,7 +112,7 @@ data Agent = Agent
     -- events).
     , rspThread :: ThreadId
     , eventChan :: TChan AgentEvent
-    , state :: TVar AgentState
+    , snapshot :: TVar AgentSnapshot
     }
 
 
@@ -215,13 +216,13 @@ controlAgent switch ext as = do
               throwIO $ DeviceError "Bad MonitorStart response"
 
         -- Setup action and event processing for this agent
-        state <- newTVarIO $ AgentState Map.empty
+        snapshot <- newTVarIO $ AgentSnapshot Map.empty
 
         actionChan <- newTChanIO
         actionThread <-
           forkIO $ forever $
           (atomically $ readTChan actionChan) >>=
-          processAgentAction aid device state as
+          processAgentAction aid device snapshot as
 
         eventChan <- newBroadcastTChanIO
 
@@ -229,7 +230,7 @@ controlAgent switch ext as = do
         rspThread <-
           forkIO $ forever $
           (atomically $ readTChan rspChan) >>=
-          processAgentEvent aid device state eventChan (webHook as)
+          processAgentEvent aid device snapshot eventChan (webHook as)
 
         let ag = Agent
                  device
@@ -239,7 +240,7 @@ controlAgent switch ext as = do
                  rspChan
                  rspThread
                  eventChan
-                 state
+                 snapshot
         atomically $ modifyTVar' (agents as) (Map.insert aid ag)
         releaseAgentLock (aid, as)
         return (aid, as)
@@ -250,11 +251,11 @@ controlAgent switch ext as = do
 -- TODO Allow agents to control only own calls.
 processAgentAction :: AgentId
                    -> DeviceId
-                   -> TVar AgentState
+                   -> TVar AgentSnapshot
                    -> Session
                    -> Action
                    -> IO ()
-processAgentAction aid@(AgentId (switch, _)) device state as action =
+processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
   let
     arq = sendRequestAsync (dmccHandle as) (Just aid)
     simpleRequest rq cid =
@@ -280,7 +281,7 @@ processAgentAction aid@(AgentId (switch, _)) device state as action =
         Rs.MakeCallResponse callId ucid -> do
           now <- getCurrentTime
           let call = Call Out ucid now [Rs.device rspDest] Nothing False False
-          atomically $ modifyTVar' state (calls %~ Map.insert callId call)
+          atomically $ modifyTVar' snapshot (calls %~ Map.insert callId call)
         _ -> return ()
     AnswerCall callId   -> simpleRequest Rq.AnswerCall callId
     HoldCall callId     -> simpleRequest Rq.HoldCall callId
@@ -297,16 +298,16 @@ processAgentAction aid@(AgentId (switch, _)) device state as action =
       Rq.GenerateDigits digits device callId (protocolVersion as)
 
 
--- | Process DMCC API events/errors for this agent to change its state
+-- | Process DMCC API events/errors for this agent to change its snapshot
 -- and broadcast events further.
 processAgentEvent :: AgentId
                   -> DeviceId
-                  -> TVar AgentState
+                  -> TVar AgentSnapshot
                   -> TChan AgentEvent
                   -> Maybe (HTTP.Request, HTTP.Manager)
                   -> Rs.Response
                   -> IO ()
-processAgentEvent aid device state eventChan wh rs = do
+processAgentEvent aid device snapshot eventChan wh rs = do
   let
     -- | Atomically modify one of the calls.
     callOperation :: CallId
@@ -317,7 +318,7 @@ processAgentEvent aid device state eventChan wh rs = do
                   -- ^ Error message if no such call found
                   -> STM ()
     callOperation callId callMod err =
-        modifyTVar' state $
+        modifyTVar' snapshot $
           \m ->
             case Map.lookup callId (_calls m) of
               Just call ->
@@ -329,7 +330,7 @@ processAgentEvent aid device state eventChan wh rs = do
     Rs.CSTAErrorCodeResponse err ->
       atomically $ writeTChan eventChan $ RequestError $ unpack err
     Rs.EventResponse _ ev -> do
-      (updState, report) <- atomically $ do
+      (updSnapshot, report) <- atomically $ do
         -- Return True if the event must be reported to agent event chan
         report <- case ev of
           -- New outgoing call
@@ -338,18 +339,18 @@ processAgentEvent aid device state eventChan wh rs = do
             -- new entry to calls list. OriginatedEvent does not
             -- contain any new data compared to MakeCallResponse, so
             -- there's no processing here. However, we report new
-            -- agent state.
+            -- agent snapshot.
             return True
           -- New call
           Rs.DeliveredEvent{..} -> do
-            s <- readTVar state
+            s <- readTVar snapshot
             case Map.member callId $ _calls s of
               -- DeliveredEvent arrives after OriginatedEvent for
               -- outgoing calls too, but we keep the original call
               -- information.
               True -> return False
               False -> do
-                modifyTVar' state (calls %~ Map.insert callId call)
+                modifyTVar' snapshot (calls %~ Map.insert callId call)
                 return True
             where
               (dir, interloc) = if callingDevice == device
@@ -371,7 +372,7 @@ processAgentEvent aid device state eventChan wh rs = do
           -- releasingDevice value.
           Rs.ConnectionClearedEvent{..} -> do
             let really = releasingDevice == device
-            when really $ modifyTVar' state $ (calls %~ at callId .~ Nothing)
+            when really $ modifyTVar' snapshot $ (calls %~ at callId .~ Nothing)
             return really
           Rs.HeldEvent{..} -> do
             callOperation callId
@@ -386,10 +387,10 @@ processAgentEvent aid device state eventChan wh rs = do
           -- Conferencing call A to call B yields ConferencedEvent with
           -- primaryCall=B and secondaryCall=A, while call A dies.
           Rs.ConferencedEvent prim sec -> do
-            s <- readTVar state
+            s <- readTVar snapshot
             case (Map.lookup prim (_calls s), Map.lookup sec (_calls s)) of
               (Just oldCall, Just newCall) -> do
-                modifyTVar' state $ (calls %~ at prim .~ Nothing)
+                modifyTVar' snapshot $ (calls %~ at prim .~ Nothing)
                 callOperation sec
                   (\call ->
                      Map.insert sec
@@ -402,11 +403,11 @@ processAgentEvent aid device state eventChan wh rs = do
               -- user request (recorder single-stepping in).
               _ -> return False
           Rs.TransferedEvent prim sec -> do
-            modifyTVar' state $ (calls %~ at prim .~ Nothing)
-            modifyTVar' state $ (calls %~ at sec .~ Nothing)
+            modifyTVar' snapshot $ (calls %~ at prim .~ Nothing)
+            modifyTVar' snapshot $ (calls %~ at sec .~ Nothing)
             return True
           Rs.UnknownEvent -> return False
-        s <- readTVar state
+        s <- readTVar snapshot
         when report $ writeTChan eventChan $ TelephonyEvent ev s
         return (s, report)
       -- Call webhook if necessary
@@ -415,7 +416,7 @@ processAgentEvent aid device state eventChan wh rs = do
           void $ httpNoBody req{requestBody = rqBody, method = "POST"} mgr
           where
             rqBody = HTTP.RequestBodyLBS $ A.encode $
-                     WHEvent aid (TelephonyEvent ev updState)
+                     WHEvent aid (TelephonyEvent ev updSnapshot)
         _ -> return ()
     -- All other responses cannot arrive to an agent
     _ -> return ()
@@ -469,10 +470,10 @@ handleEvents (aid, as) handler = do
         return tid
 
 
-getAgentState :: AgentHandle
-              -> IO AgentState
-getAgentState (aid, as) = do
+getAgentSnapshot :: AgentHandle
+                 -> IO AgentSnapshot
+getAgentSnapshot (aid, as) = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
     Nothing -> throwIO $ UnknownAgent aid
-    Just (Agent{..}) -> readTVarIO state
+    Just (Agent{..}) -> readTVarIO snapshot

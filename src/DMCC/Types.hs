@@ -89,6 +89,12 @@ data Call = Call
 $(deriveJSON defaultOptions ''Call)
 
 
+data AgentState = Ready
+                | AfterCall
+                | NotReady
+                deriving Show
+
+
 data LoggingOptions = LoggingOptions
   { ident :: String
   }
