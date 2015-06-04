@@ -92,6 +92,7 @@ $(deriveJSON defaultOptions ''Call)
 data AgentState = Ready
                 | AfterCall
                 | NotReady
+                | Logout
                 deriving Show
 
 

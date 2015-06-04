@@ -165,6 +165,7 @@ instance ToText AgentState where
   toText Ready     = "ready"
   toText AfterCall = "workingAfterCall"
   toText NotReady  = "notReady"
+  toText Logout    = "loggedOff"
 
 
 deriving instance ToText DeviceId
