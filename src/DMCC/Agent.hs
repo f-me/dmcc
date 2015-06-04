@@ -50,7 +50,7 @@ data Action = MakeCall{number :: Extension}
             deriving Show
 
 
-$(deriveFromJSON
+$(deriveJSON
   defaultOptions{sumEncoding = defaultTaggedObject{tagFieldName="action"}}
   ''Action)
 
