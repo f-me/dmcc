@@ -64,6 +64,7 @@ data DMCCHandle = DMCCHandle
   -- ^ Keeps track of which request has has been issued by what agent
   -- (if there's one) until its response arrives.
   , loggingOptions :: Maybe LoggingOptions
+  , sessionOptions :: SessionOptions
   }
 
 
@@ -106,6 +107,10 @@ defaultLoggingOptions :: LoggingOptions
 defaultLoggingOptions = LoggingOptions "dmcc-lib"
 
 
+defaultSessionOptions :: SessionOptions
+defaultSessionOptions = SessionOptions 1
+
+
 --FIXME: handle network errors
 startSession :: (String, PortNumber)
              -- ^ Host and port of AES server.
@@ -118,8 +123,9 @@ startSession :: (String, PortNumber)
              -> Maybe String
              -- ^ Web hook URL.
              -> Maybe LoggingOptions
+             -> SessionOptions
              -> IO Session
-startSession (host, port) conn user pass whUrl lopts = withOpenSSL $ do
+startSession (host, port) conn user pass whUrl lopts sopts = withOpenSSL $ do
   (istream, ostream, cl) <-
     case conn of
       Plain -> do
@@ -195,6 +201,7 @@ startSession (host, port) conn user pass whUrl lopts = withOpenSSL $ do
           syncResponses
           agentRequests
           lopts
+          sopts
 
   Rs.StartApplicationSessionPosResponse{..} <- sendRequestSync h Nothing
     $ Rq.StartApplicationSession
@@ -249,7 +256,12 @@ stopSession as@(Session{..}) = do
   cleanup dmccHandle
 
 
-sendRequestSync :: DMCCHandle -> Maybe AgentId -> Request -> IO Response
+sendRequestSync :: DMCCHandle
+                -> Maybe AgentId
+                -- ^ Push erroneous responses to this agent's event
+                -- processor.
+                -> Request
+                -> IO Response
 sendRequestSync (DMCCHandle{..}) aid rq = do
   (ix,var) <- atomically $ do
     modifyTVar' invokeId ((`mod` 9999).(+1))
@@ -265,7 +277,12 @@ sendRequestSync (DMCCHandle{..}) aid rq = do
   atomically $ takeTMVar var
 
 
-sendRequestAsync :: DMCCHandle -> Maybe AgentId -> Request -> IO ()
+sendRequestAsync :: DMCCHandle
+                 -> Maybe AgentId
+                 -- ^ Push erroneous responses to this agent's event
+                 -- processor.
+                 -> Request
+                 -> IO ()
 sendRequestAsync (DMCCHandle{..}) aid rq =
   sendRequestAsyncRaw loggingOptions (snd streams) invokeId a' rq
   where

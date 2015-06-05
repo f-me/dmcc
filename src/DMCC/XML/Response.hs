@@ -48,6 +48,11 @@ data Response
     { newCallId :: CallId
     , newUcid :: UCID
     }
+  | GetAgentStateResponse
+    { agentState :: Maybe AgentState
+      -- ^ Nothing if an unknown state is reported.
+    , reasonCode :: Text
+    }
   | EventResponse
     { monitorCrossRefID :: Text
     , event :: Event
@@ -138,6 +143,35 @@ fromXml xml
           { newCallId = CallId $ textFromPath cur "callingDevice" ["callId"]
           , newUcid =
             UCID $ text cur "globallyUniqueCallLinkageID"
+          }
+
+        "GetAgentStateResponse" ->
+          GetAgentStateResponse
+          { agentState =
+            let
+                raw = textFromPath cur "agentStateList"
+                      [ "agentStateEntry"
+                      , "agentInfo"
+                      , "agentInfoItem"
+                      , "agentState"
+                      ]
+                state | raw == "agentReady" =
+                          Just $ Settable Ready
+                      | raw == "agentWorkingAfterCall" =
+                          Just $ Settable AfterCall
+                      | raw == "agentNotReady" =
+                          Just $ Settable NotReady
+                      | raw == "agentBusy" =
+                          Just Busy
+                      | otherwise = Nothing
+            in
+              state
+          , reasonCode = textFromPath cur "extensions"
+                         [ "privateData"
+                         , "private"
+                         , "GetAgentStateResponsePrivateData"
+                         , "reasonCode"
+                         ]
           }
 
         "DeliveredEvent" ->
@@ -249,7 +283,8 @@ decimal c n = let txt = text c n
 
 
 -- | Extract contents of the first element which matches provided
--- path (@rootName:extraNames@)
+-- path (@rootName:extraNames@). Return empty text if no element
+-- matches the path.
 textFromPath cur rootName extraNames =
   if null contents
   then ""

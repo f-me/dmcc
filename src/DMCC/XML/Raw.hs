@@ -37,7 +37,7 @@ import           DMCC.XML.Response
 maybeSyslog :: Maybe LoggingOptions -> Priority -> String -> IO ()
 maybeSyslog Nothing _ _ = return ()
 maybeSyslog (Just LoggingOptions{..}) pri msg =
-  withSyslog ident [PID] USER (logUpTo Debug) $ syslog pri msg
+  withSyslog syslogIdent [PID] USER (logUpTo Debug) $ syslog pri msg
 
 
 -- FIXME: error

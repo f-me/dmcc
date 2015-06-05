@@ -13,6 +13,7 @@ module DMCC.Agent
 
 where
 
+import           Control.Applicative
 import           Control.Exception
 import           Control.Lens hiding (Action)
 import           Control.Monad
@@ -46,7 +47,7 @@ data Action = MakeCall{number :: Extension}
             | ConferenceCall{activeCall :: CallId, heldCall :: CallId}
             | TransferCall{activeCall :: CallId, heldCall :: CallId}
             | SendDigits{callId :: CallId, digits :: Text}
-            | SetState{newState :: AgentState}
+            | SetState{newState :: SettableAgentState}
             deriving Show
 
 
@@ -57,6 +58,8 @@ $(deriveJSON
 
 data AgentSnapshot = AgentSnapshot
     { _calls :: Map.Map CallId Call
+    , _state :: (Maybe AgentState, Text)
+    -- ^ Last recognized agent state along with reason code.
     }
     deriving Show
 
@@ -64,12 +67,15 @@ data AgentSnapshot = AgentSnapshot
 instance ToJSON AgentSnapshot where
   toJSON s =
     object [ "calls" A..= (Map.mapKeys (\(CallId t) -> t) $ _calls s)
+           , "state" A..= _state s
            ]
 
 
 instance FromJSON AgentSnapshot where
   parseJSON (Object o) =
-    (AgentSnapshot . Map.mapKeys CallId) `liftM` (o .: "calls")
+    AgentSnapshot
+    <$> ((Map.mapKeys CallId) `liftM` (o .: "calls"))
+    <*> (o .: "state")
   parseJSON _ = fail "Could not parse AgentSnapshot from non-object"
 
 
@@ -79,9 +85,14 @@ $(makeLenses ''AgentSnapshot)
 -- | Events/errors are published to external clients of the
 -- agents and may be used by agent subscribers to provide information
 -- to user.
-data AgentEvent = TelephonyEvent{dmccEvent :: Rs.Event, newSnapshot :: AgentSnapshot}
+data AgentEvent = TelephonyEvent
+                  { dmccEvent :: Rs.Event
+                  , newSnapshot :: AgentSnapshot}
                 -- ^ A telephony-related event, along with an updated
                 -- snapshot.
+                | StateChange{newSnapshot :: AgentSnapshot}
+                -- ^ Arrives when an agent state change has been
+                -- observed.
                 | RequestError{errorText :: String}
                 -- ^ An error caused by a request from this agent.
                 deriving Show
@@ -112,13 +123,16 @@ data Agent = Agent
     -- ^ Input chan for XML responses for this agent (including
     -- events).
     , rspThread :: ThreadId
+    -- ^ Response reader.
+    , stateThread :: ThreadId
+    -- ^ Agent state poller.
     , eventChan :: TChan AgentEvent
     , snapshot :: TVar AgentSnapshot
     }
 
 
 instance Show Agent where
-  show (Agent (DeviceId d) m _ _ _ _ _ _) =
+  show (Agent (DeviceId d) m _ _ _ _ _ _ _) =
     "Agent{deviceId=" ++ unpack (original d) ++
     ", monitorId=" ++ unpack m ++
     "}"
@@ -130,6 +144,7 @@ type AgentHandle = (AgentId, Session)
 data AgentError
   = DeviceError String
   | MonitoringError String
+  | StatePollingError String
   | UnknownAgent AgentId
   deriving (Data, Typeable, Show)
 
@@ -217,7 +232,7 @@ controlAgent switch ext as = do
               throwIO $ DeviceError "Bad MonitorStart response"
 
         -- Setup action and event processing for this agent
-        snapshot <- newTVarIO $ AgentSnapshot Map.empty
+        snapshot <- newTVarIO $ AgentSnapshot Map.empty (Nothing, "")
 
         actionChan <- newTChanIO
         actionThread <-
@@ -233,6 +248,38 @@ controlAgent switch ext as = do
           (atomically $ readTChan rspChan) >>=
           processAgentEvent aid device snapshot eventChan (webHook as)
 
+        -- As of DMCC 6.2.x, agent state change events are not
+        -- reported by DMCC (see
+        -- https://www.devconnectprogram.com/forums/posts/list/18511.page).
+        -- We use polling to inform our API clients about update in
+        -- the agent state.
+        stateThread <-
+          forkIO $ forever $ do
+            gsRsp <- sendRequestSync (dmccHandle as) (Just aid) $
+              Rq.GetAgentState
+              { device = device
+              , acceptedProtocol = protocolVersion as
+              }
+            case gsRsp of
+              Rs.GetAgentStateResponse{..} -> do
+                ns <- atomically $ do
+                  sn <- readTVar snapshot
+                  case (_state sn /= (agentState, reasonCode)) of
+                    False -> return Nothing
+                    True -> do
+                      modifyTVar' snapshot (state .~ (agentState, reasonCode))
+                      readTVar snapshot >>= \newSnapshot -> do
+                        writeTChan eventChan $ StateChange newSnapshot
+                        return $ Just newSnapshot
+                case (ns, webHook as) of
+                  (Just ns', Just connData) ->
+                    sendWH connData aid (StateChange ns')
+                  _ -> return ()
+              -- Ignore state errors
+              _ -> return ()
+            threadDelay $
+              (statePollingDelay $ sessionOptions $ dmccHandle as) * 1000000
+
         let ag = Agent
                  device
                  monitorCrossRefID
@@ -240,6 +287,7 @@ controlAgent switch ext as = do
                  actionThread
                  rspChan
                  rspThread
+                 stateThread
                  eventChan
                  snapshot
         atomically $ modifyTVar' (agents as) (Map.insert aid ag)
@@ -414,14 +462,23 @@ processAgentEvent aid device snapshot eventChan wh rs = do
         return (s, report)
       -- Call webhook if necessary
       case (wh, report) of
-        (Just (req, mgr), True) ->
-          void $ httpNoBody req{requestBody = rqBody, method = "POST"} mgr
-          where
-            rqBody = HTTP.RequestBodyLBS $ A.encode $
-                     WHEvent aid (TelephonyEvent ev updSnapshot)
+        (Just connData, True) ->
+          sendWH connData aid (TelephonyEvent ev updSnapshot)
         _ -> return ()
     -- All other responses cannot arrive to an agent
     _ -> return ()
+
+
+-- | Send agent event data to a web hook endpoint, ignoring possible
+-- exceptions.
+sendWH :: (HTTP.Request, HTTP.Manager)
+       -> AgentId
+       -> AgentEvent
+       -> IO ()
+sendWH (req, mgr) aid payload = do
+  void $ httpNoBody req{requestBody = rqBody, method = "POST"} mgr
+    where
+      rqBody = HTTP.RequestBodyLBS $ A.encode $ WHEvent aid payload
 
 
 -- | Forget about an agent, releasing his device and monitors.
@@ -453,6 +510,8 @@ releaseAgent (aid, as) = do
         sendRequestSync (dmccHandle as) (Just aid) $
           Rq.ReleaseDeviceId{device = deviceId ag}
         killThread (actionThread ag)
+        killThread (rspThread ag)
+        killThread (stateThread ag)
         atomically $ modifyTVar' (agents as) (Map.delete aid)
         releaseAgentLock (aid, as)
         return ()

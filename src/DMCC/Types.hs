@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 {-| Shared type declarations. -}
@@ -89,16 +90,38 @@ data Call = Call
 $(deriveJSON defaultOptions ''Call)
 
 
-data AgentState = Ready
-                | AfterCall
-                | NotReady
-                | Logout
-                deriving Show
+data SettableAgentState = Ready
+                        | AfterCall
+                        | NotReady
+                        | Logout
+                        deriving (Eq, Show)
 
 
-$(deriveJSON defaultOptions ''AgentState)
+$(deriveJSON defaultOptions ''SettableAgentState)
+
+
+data AgentState = Busy
+                | Settable SettableAgentState
+                deriving (Eq, Show)
+
+
+instance ToJSON AgentState where
+  toJSON Busy         = String "Busy"
+  toJSON (Settable s) = toJSON s
+
+
+instance FromJSON AgentState where
+  parseJSON (String "Busy") = return Busy
+  parseJSON s@(String _)    = Settable <$> parseJSON s
+  parseJSON _               = fail "Could not parse AgentState"
 
 
 data LoggingOptions = LoggingOptions
-  { ident :: String
+  { syslogIdent :: String
+  }
+
+
+data SessionOptions = SessionOptions
+  { statePollingDelay :: Int
+    -- ^ How often to poll every agent for state changes (in seconds).
   }

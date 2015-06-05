@@ -99,9 +99,13 @@ data Request
     { acceptedProtocol :: Text
     , monitorCrossRefID :: Text
     }
+  | GetAgentState
+    { device :: DeviceId
+    , acceptedProtocol :: Text
+    }
   | SetAgentState
     { device :: DeviceId
-    , requestedAgentState :: AgentState
+    , requestedAgentState :: SettableAgentState
     , acceptedProtocol :: Text
     }
   deriving Show
@@ -161,7 +165,7 @@ instance ToText Extension where
   toText (Extension e) = T.pack $ show e
 
 
-instance ToText AgentState where
+instance ToText SettableAgentState where
   toText Ready     = "ready"
   toText AfterCall = "workingAfterCall"
   toText NotReady  = "notReady"
@@ -332,6 +336,12 @@ toXml rq = renderLBS def $ case rq of
     doc "MonitorStop" acceptedProtocol
     [xml|
       <monitorCrossRefID>#{monitorCrossRefID}
+    |]
+
+  GetAgentState{..} ->
+    doc "GetAgentState" acceptedProtocol
+    [xml|
+      <device>#{toText device}
     |]
 
   SetAgentState{..} ->

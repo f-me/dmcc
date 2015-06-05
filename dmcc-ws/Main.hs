@@ -47,6 +47,7 @@ data Config =
   , apiPass    :: Text
   , whUrl      :: Maybe String
   , refDelay   :: Int
+  , stateDelay :: Int
   , switchName :: SwitchName
   , logLibrary :: Bool
   }
@@ -80,7 +81,8 @@ realMain config = do
       <*> Cfg.require c "api-user"
       <*> Cfg.require c "api-pass"
       <*> Cfg.lookup  c "web-hook-handler-url"
-      <*> Cfg.lookupDefault 0 c "agent-release-delay"
+      <*> Cfg.lookupDefault 1 c "agent-release-delay"
+      <*> Cfg.lookupDefault 1 c "state-polling-delay"
       <*> (SwitchName <$> Cfg.require c "switch-name")
       <*> Cfg.require c "log-library"
 
@@ -90,7 +92,8 @@ realMain config = do
      (if aesTLS then (TLS caDir) else Plain)
      apiUser apiPass
      whUrl
-     (if logLibrary then Just defaultLoggingOptions else Nothing))
+     (if logLibrary then Just defaultLoggingOptions else Nothing)
+     defaultSessionOptions{statePollingDelay = stateDelay})
     (\s ->
        syslog Info ("Stopping " ++ show s) >>
        stopSession s)
