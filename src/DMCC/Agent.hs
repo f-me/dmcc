@@ -407,6 +407,9 @@ processAgentEvent aid device snapshot eventChan wh rs = do
                                 then (Out, calledDevice)
                                 else (In distributingVdn, callingDevice)
               call = Call dir ucid now [interloc] Nothing False False
+          Rs.DivertedEvent{..} -> do
+            modifyTVar' snapshot $ (calls %~ at callId .~ Nothing)
+            return True
           Rs.EstablishedEvent{..} -> do
             callOperation callId
               (\call -> Map.insert callId call{answered = Just now}) $

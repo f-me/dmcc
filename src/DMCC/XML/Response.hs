@@ -75,6 +75,9 @@ data Event =
     , callingDevice :: DeviceId
     , calledDevice :: DeviceId
     }
+  | DivertedEvent
+    { callId :: CallId
+    }
   | OriginatedEvent
     { callId :: CallId
     , callingDevice :: DeviceId
@@ -199,6 +202,13 @@ fromXml xml
             DeviceId $ mk $ textFromPath cur "callingDevice" ["deviceIdentifier"]
           , calledDevice =
             DeviceId $ mk $ textFromPath cur "calledDevice" ["deviceIdentifier"]
+          }
+
+        "DivertedEvent" ->
+          EventResponse (text cur "monitorCrossRefID") $
+          DivertedEvent
+          { callId =
+            CallId $ textFromPath cur "connection" ["callID"]
           }
 
         "EstablishedEvent" ->

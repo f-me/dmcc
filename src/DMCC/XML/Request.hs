@@ -315,6 +315,7 @@ toXml rq = renderLBS def $ case rq of
           <connectionCleared>true
           <conferenced>true
           <delivered>true
+          <diverted>true
           <established>true
           <failed>true
           <held>true
