@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
 
 {-|
@@ -172,7 +173,7 @@ avayaApplication cfg as refs pending = do
               -- Decrement reference counter when the connection dies or any
               -- other exception happens
               releaseAgentRef ah refs >>= refReport ext'
-        flip finally disconnectionHandler $ do
+        handle (\(_ :: ConnectionException) -> disconnectionHandler) $ do
           s <- getAgentSnapshot ah
           sendTextData conn $ encode s
           -- Agent actions loop
