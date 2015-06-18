@@ -53,6 +53,9 @@ data Response
       -- ^ Nothing if an unknown state is reported.
     , reasonCode :: Text
     }
+  | GetCallLinkageDataResponse
+    { linkageUcid :: UCID
+    }
   | EventResponse
     { monitorCrossRefID :: Text
     , event :: Event
@@ -175,6 +178,11 @@ fromXml xml
                          , "GetAgentStateResponsePrivateData"
                          , "reasonCode"
                          ]
+          }
+
+        "GetCallLinkageDataResponse" ->
+          GetCallLinkageDataResponse
+          { linkageUcid = UCID $ text cur "globallyUniqueCallLinkageID"
           }
 
         "DeliveredEvent" ->

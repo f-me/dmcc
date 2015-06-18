@@ -108,6 +108,11 @@ data Request
     , requestedAgentState :: SettableAgentState
     , acceptedProtocol :: Text
     }
+  | GetCallLinkageData
+    { deviceId :: DeviceId
+    , callId :: CallId
+    , acceptedProtocol :: Text
+    }
   deriving Show
 
 
@@ -350,4 +355,12 @@ toXml rq = renderLBS def $ case rq of
     [xml|
       <device>#{toText device}
       <requestedAgentState>#{toText requestedAgentState}
+    |]
+
+  GetCallLinkageData{..} ->
+    doc "GetCallLinkageData" acceptedProtocol
+    [xml|
+      <call>
+        <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
+        <callID>#{toText callId}
     |]

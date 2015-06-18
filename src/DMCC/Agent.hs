@@ -249,7 +249,7 @@ controlAgent switch ext as = do
         rspThread <-
           forkIO $ forever $
           (atomically $ readTChan rspChan) >>=
-          processAgentEvent aid device snapshot eventChan (webHook as)
+          processAgentEvent aid device snapshot eventChan as
 
         -- As of DMCC 6.2.x, agent state change events are not
         -- reported by DMCC (see
@@ -373,10 +373,10 @@ processAgentEvent :: AgentId
                   -> DeviceId
                   -> TVar AgentSnapshot
                   -> TChan AgentEvent
-                  -> Maybe (HTTP.Request, HTTP.Manager)
+                  -> Session
                   -> Rs.Response
                   -> IO ()
-processAgentEvent aid device snapshot eventChan wh rs = do
+processAgentEvent aid device snapshot eventChan as rs = do
   let
     -- | Atomically modify one of the calls.
     callOperation :: CallId
@@ -397,17 +397,46 @@ processAgentEvent aid device snapshot eventChan wh rs = do
   case rs of
     Rs.CSTAErrorCodeResponse err ->
       atomically $ writeTChan eventChan $ RequestError $ unpack err
+
+    -- New outgoing call
+    --
+    -- MakeCallResponse handler should have already added the call
+    -- information to agent state. If this is not the case (which
+    -- occurs when multiple DMCC library sessions interact with the
+    -- same AVAYA instance), we add the call after finding out its
+    -- UCID.
+    Rs.EventResponse _ ev@Rs.OriginatedEvent{..} -> do
+      s <- readTVarIO snapshot
+      updSnapshot' <-
+        case Map.member callId (_calls s) of
+          True -> return s
+          False -> do
+            gcldr <- sendRequestSync (dmccHandle as) (Just aid) $
+                     Rq.GetCallLinkageData device callId (protocolVersion as)
+            case gcldr of
+              Rs.GetCallLinkageDataResponse ucid ->
+                atomically $ do
+                  modifyTVar' snapshot (calls %~ Map.insert callId call)
+                  readTVar snapshot
+                  where
+                    call = Call Out ucid now [calledDevice] Nothing False False
+              _ -> do
+                atomically $ writeTChan eventChan $
+                  TelephonyEventError "Bad GetCallLinkageDataResponse"
+                return s
+      atomically $ writeTChan eventChan $ TelephonyEvent ev s
+      case webHook as of
+        Just connData -> sendWH connData aid (TelephonyEvent ev updSnapshot')
+        _             -> return ()
+
+
+    -- All other telephony events
     Rs.EventResponse _ ev -> do
       (updSnapshot, report) <- atomically $ do
         -- Return True if the event must be reported to agent event chan
         report <- case ev of
-          -- New outgoing call
           Rs.OriginatedEvent{..} ->
-            -- MakeCallResponse handler should have already added a
-            -- new entry to calls list. OriginatedEvent does not
-            -- contain any new data compared to MakeCallResponse, so
-            -- there's no processing here. However, we report new
-            -- agent snapshot.
+            -- Should have already been handled in a branch above
             return True
           -- New call
           Rs.DeliveredEvent{..} -> do
@@ -482,7 +511,7 @@ processAgentEvent aid device snapshot eventChan wh rs = do
         when report $ writeTChan eventChan $ TelephonyEvent ev s
         return (s, report)
       -- Call webhook if necessary
-      case (wh, report) of
+      case (webHook as, report) of
         (Just connData, True) ->
           sendWH connData aid (TelephonyEvent ev updSnapshot)
         _ -> return ()
