@@ -141,6 +141,7 @@ instance Show Agent where
 type AgentHandle = (AgentId, Session)
 
 
+-- | Exceptions thrown by agent-related routines and threads.
 data AgentError
   = DeviceError String
   | MonitoringError String
@@ -253,6 +254,22 @@ controlAgent switch ext as = do
         -- https://www.devconnectprogram.com/forums/posts/list/18511.page).
         -- We use polling to inform our API clients about update in
         -- the agent state.
+
+        -- Find out initial agent state
+        gsRsp' <- sendRequestSync (dmccHandle as) (Just aid) $
+              Rq.GetAgentState
+              { device = device
+              , acceptedProtocol = protocolVersion as
+              }
+        case gsRsp' of
+          Rs.GetAgentStateResponse{..} ->
+            atomically $
+            modifyTVar' snapshot (state .~ (agentState, reasonCode))
+          Rs.CSTAErrorCodeResponse errorCode ->
+            throwIO $ StatePollingError $ unpack errorCode
+          _ ->
+            throwIO $ DeviceError "Bad GetAgentState response"
+        -- State polling thread
         stateThread <-
           forkIO $ forever $ do
             gsRsp <- sendRequestSync (dmccHandle as) (Just aid) $
