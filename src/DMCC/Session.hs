@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
 {-|
@@ -7,11 +8,23 @@ DMCC session handling.
 -}
 
 module DMCC.Session
+  ( Session(..)
+  , ConnectionType(..)
+  , startSession
+  , stopSession
+  , defaultLoggingOptions
+  , defaultSessionOptions
+
+  , DMCCHandle(..)
+  , sendRequestSync
+  , sendRequestAsync
+  )
 
 where
 
 import           Control.Arrow
 import           Control.Monad
+import           Control.Exception
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Data.Functor
@@ -23,16 +36,20 @@ import qualified Data.Set as Set
 import qualified Data.IntMap.Strict as IntMap
 import           Data.Text (Text, unpack)
 
-import           System.IO.Streams (InputStream, OutputStream, write)
+import           System.IO
+import           System.IO.Streams (InputStream,
+                                    OutputStream,
+                                    ReadTooShortException,
+                                    write)
 import           System.IO.Streams.Handle
 import qualified System.IO.Streams.SSL as SSLStreams
+import           System.Posix.Syslog
 
 import           Network
 import qualified Network.HTTP.Client as HTTP
-import           Network.Socket
+import           Network.Socket hiding (connect)
 import           OpenSSL
 import qualified OpenSSL.Session as SSL
-import           System.IO
 
 import           DMCC.Types
 import           DMCC.XML.Request (Request)
@@ -48,11 +65,13 @@ data ConnectionType = Plain
                     | TLS { caDir :: Maybe FilePath }
 
 
--- | Low-level AES API plumbing.
+-- | Low-level DMCC API plumbing.
 data DMCCHandle = DMCCHandle
-  { streams :: (InputStream ByteString, OutputStream ByteString)
-  , cleanup :: IO ()
-  -- ^ Properly close underlying connection.
+  { connection :: TMVar (InputStream ByteString, OutputStream ByteString, IO ())
+  -- ^ AVAYA server socket streams and connection cleanup action.
+  , reconnect :: IO ()
+  -- ^ Reconnect to AVAYA server, changing socket streams, cleanup
+  -- action and session.
   , readThread :: ThreadId
   -- ^ DMCC response reader thread.
   , procThread :: ThreadId
@@ -68,12 +87,13 @@ data DMCCHandle = DMCCHandle
   }
 
 
+-- | Library API session.
 data Session = Session
-  { sessionId :: Text
-  , pingThread :: ThreadId
+  { sessionId :: TMVar (Text, Int)
+  -- ^ Session ID and duration.
   , protocolVersion :: Text
-  -- ^ Action worker thread.
   , dmccHandle :: DMCCHandle
+  , pingThread :: ThreadId
   , webHook :: Maybe (HTTP.Request, HTTP.Manager)
   -- ^ Web hook handler URL and manager.
   , agents :: TVar (Map.Map AgentId Agent)
@@ -83,17 +103,7 @@ data Session = Session
 
 instance Show Session where
   show as =
-    "Session{sessionId=" ++ (unpack $ sessionId as) ++
-    ", protocolVersion=" ++ (unpack $ protocolVersion as) ++
-    "}"
-
-
-instance Eq Session where
-  s1 == s2 = (sessionId s1) == (sessionId s2)
-
-
-instance Ord Session where
-  compare s1 s2 = compare (sessionId s1) (sessionId s2)
+    "Session{protocolVersion=" ++ (unpack $ protocolVersion as) ++ "}"
 
 
 data LoopEvent
@@ -125,40 +135,100 @@ startSession :: (String, PortNumber)
              -> Maybe LoggingOptions
              -> SessionOptions
              -> IO Session
-startSession (host, port) conn user pass whUrl lopts sopts = withOpenSSL $ do
-  (istream, ostream, cl) <-
-    case conn of
-      Plain -> do
-        handle <- connectTo host (PortNumber $ fromIntegral port)
-        hSetBuffering handle NoBuffering
-        is <- handleToInputStream handle
-        os <- handleToOutputStream handle
-        let cl = hClose handle
-        return (is, os, cl)
-      TLS caDir -> do
-        sslCtx <- SSL.context
-        SSL.contextSetDefaultCiphers sslCtx
-        SSL.contextSetVerificationMode sslCtx $
-          SSL.VerifyPeer True True Nothing
-        maybe (return ()) (SSL.contextSetCADirectory sslCtx) caDir
-        (is, os, ssl) <- SSLStreams.connect sslCtx host port
-        let cl =
-              do
-                SSL.shutdown ssl SSL.Unidirectional
-                maybe (return ()) close $ SSL.sslSocket ssl
-        return (is, os, cl)
-
-  -- Request/response plumbing
-  msgChan <- newTChanIO
-  readThread <-
-    forkIO $ forever $
-    Raw.readResponse lopts istream >>=
-    atomically . writeTChan msgChan . first DMCCRsp
-
+startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
+  conn <- newEmptyTMVarIO
   syncResponses <- newTVarIO IntMap.empty
   agentRequests <- newTVarIO IntMap.empty
+  invoke <- newTVarIO 0
+  sess <- newEmptyTMVarIO
+
+  let
+    -- Connect to the server, produce I/O streams and a cleanup action
+    connect :: IO (InputStream ByteString, OutputStream ByteString, IO ())
+    connect = do
+      handle
+        (\(e :: IOException) ->
+           Raw.maybeSyslog lopts Critical
+           ("Connection failed: " ++ show e) >>
+           throwIO e) $
+        case ct of
+          Plain -> do
+            h <- connectTo host (PortNumber $ fromIntegral port)
+            hSetBuffering h NoBuffering
+            is <- handleToInputStream h
+            os <- handleToOutputStream h
+            let cl = hClose h
+            return (is, os, cl)
+          TLS caDir -> do
+            sslCtx <- SSL.context
+            SSL.contextSetDefaultCiphers sslCtx
+            SSL.contextSetVerificationMode sslCtx $
+              SSL.VerifyPeer True True Nothing
+            maybe (return ()) (SSL.contextSetCADirectory sslCtx) caDir
+            (is, os, ssl) <- SSLStreams.connect sslCtx host port
+            let cl = do
+                  SSL.shutdown ssl SSL.Unidirectional
+                  maybe (return ()) close $ SSL.sslSocket ssl
+            return (is, os, cl)
+
+    -- Start new DMCC session
+    startDMCCSession :: OutputStream ByteString -> IO ((Text, Int), Text)
+    startDMCCSession ostream = do
+      let startReq =
+            Rq.StartApplicationSession
+            { applicationId = ""
+            , requestedProtocolVersion = Rq.DMCC_6_2
+            , userName = user
+            , password = pass
+            , sessionCleanupDelay = 80
+            , requestedSessionDuration = 80
+            }
+      Rs.StartApplicationSessionPosResponse{..} <-
+        sendRequestSyncRaw
+        lopts
+        ostream
+        reconnect
+        invoke
+        syncResponses
+        Nothing
+        startReq
+
+      return ((sessionID, actualSessionDuration), actualProtocolVersion)
+
+    -- Recreate I/O and API session
+    reconnect = do
+      Raw.maybeSyslog lopts Warning "Attempting reconnection"
+      -- Only one reconnection at a time
+      (_, _, cl) <- atomically $ takeTMVar sess >> takeTMVar conn
+      handle
+        (\(e :: IOException) ->
+           Raw.maybeSyslog lopts Error $
+           "Failed to close old connection: " ++ show e)
+        cl
+      -- We do not change the protocol version during session recovery
+      c@(_, ostream, _) <- connect
+      atomically $ putTMVar conn c
+      Raw.maybeSyslog lopts Warning "Connection re-established"
+      (newSession, _) <- startDMCCSession ostream
+      atomically $ putTMVar sess newSession
+
+  -- Read DMCC responses from socket
+  msgChan <- newTChanIO
+  let exHandler e =
+        Raw.maybeSyslog lopts Critical ("Read error: " ++ show e) >>
+        reconnect
+  readThread <-
+    forkIO $ forever $ do
+      (istream, _, _) <- atomically $ readTMVar conn
+      flip catches [ Handler (\(e :: IOException) -> exHandler e)
+                   , Handler (\(e :: ReadTooShortException) -> exHandler e)
+                   ] $
+        Raw.readResponse lopts istream >>=
+        atomically . writeTChan msgChan . first DMCCRsp
+
   agents <- newTVarIO Map.empty
 
+  -- Process parsed messages
   procThread <- forkIO $ forever $ do
     (msg, invokeId) <- atomically $ readTChan msgChan
     -- TODO Check agent locks?
@@ -190,35 +260,31 @@ startSession (host, port) conn user pass whUrl lopts sopts = withOpenSSL $ do
           Nothing -> return ()
       _ -> return ()
 
-  invokeId <- newTVarIO 0
   agLocks <- newTVarIO Set.empty
   let h = DMCCHandle
-          (istream, ostream)
-          cl
+          conn
+          reconnect
           readThread
           procThread
-          invokeId
+          invoke
           syncResponses
           agentRequests
           lopts
           sopts
 
-  Rs.StartApplicationSessionPosResponse{..} <- sendRequestSync h Nothing
-    $ Rq.StartApplicationSession
-      { applicationId = ""
-      , requestedProtocolVersion = Rq.DMCC_6_2
-      , userName = user
-      , password = pass
-      , sessionCleanupDelay = 80
-      , requestedSessionDuration = 80
-      }
+  -- Start the session
+  c@(_, ostream, _) <- connect
+  atomically $ putTMVar conn c
+  (newSession, actualProtocolVersion) <- startDMCCSession ostream
+  atomically $ putTMVar sess newSession
 
   -- Keep session alive
   pingThread <- forkIO $ forever $ do
+    (s, actualSessionDuration) <- atomically $ readTMVar sess
     threadDelay $ actualSessionDuration * 500 * 1000
-    sendRequestAsyncRaw lopts ostream invokeId Nothing
+    sendRequestAsync h Nothing
       $ Rq.ResetApplicationSessionTimer
-            { sessionId = sessionID
+            { sessionId = s
             , requestedSessionDuration = actualSessionDuration
             }
 
@@ -231,10 +297,10 @@ startSession (host, port) conn user pass whUrl lopts sopts = withOpenSSL $ do
 
   return $
     Session
-    sessionID
-    pingThread
+    sess
     actualProtocolVersion
     h
+    pingThread
     wh
     agents
     agLocks
@@ -245,35 +311,71 @@ stopSession :: Session -> IO ()
 stopSession as@(Session{..}) = do
   -- Release all agents
   ags <- readTVarIO agents
-  mapM_ releaseAgent $ zip (Map.keys ags) (repeat as)
+  (s, _) <- atomically $ readTMVar sessionId
+  mapM_ releaseAgent $
+    zipWith (\aid as -> AgentHandle (aid, as)) (Map.keys ags) (repeat as)
 
   sendRequestAsync dmccHandle Nothing $
-    Rq.StopApplicationSession{sessionID = sessionId}
+    Rq.StopApplicationSession{sessionID = s}
   killThread pingThread
   killThread $ procThread dmccHandle
   killThread $ readThread dmccHandle
-  write Nothing (snd $ streams $ dmccHandle)
-  cleanup dmccHandle
+  (_, ostream, cleanup) <- atomically $ readTMVar (connection dmccHandle)
+  write Nothing ostream
+  cleanup
 
 
+-- | Send a request and block until the response arrives.
 sendRequestSync :: DMCCHandle
                 -> Maybe AgentId
                 -- ^ Push erroneous responses to this agent's event
                 -- processor.
+                --
+                -- TODO Disallow unknown agents on type level (use
+                -- AgentHandle).
                 -> Request
                 -> IO Response
 sendRequestSync (DMCCHandle{..}) aid rq = do
-  (ix,var) <- atomically $ do
-    modifyTVar' invokeId ((`mod` 9999).(+1))
-    ix <- readTVar invokeId
+  -- TODO Wait for both I/O and session
+  (_, ostream, _) <- atomically $ readTMVar connection
+  sendRequestSyncRaw
+    loggingOptions
+    ostream
+    reconnect
+    invokeId
+    syncResponses
+    ((agentRequests, ) <$> aid)
+    rq
+
+
+sendRequestSyncRaw :: Maybe LoggingOptions
+                   -> OutputStream ByteString
+                   -> IO ()
+                   -- ^ Reconnection action.
+                   -> TVar Int
+                   -> TVar (IntMap.IntMap (TMVar Response))
+                   -> Maybe (TVar (IntMap.IntMap AgentId), AgentId)
+                   -> Request
+                   -> IO Response
+sendRequestSyncRaw lopts ostream re invoke srs ar rq = do
+  (ix, var) <- atomically $ do
+    modifyTVar' invoke ((`mod` 9999) . (+1))
+    ix <- readTVar invoke
     var <- newEmptyTMVar
-    modifyTVar' syncResponses (IntMap.insert ix var)
-    case aid of
-      Just a -> modifyTVar' agentRequests (IntMap.insert ix a)
+    modifyTVar' srs (IntMap.insert ix var)
+    case ar of
+      Just (ars, a) -> modifyTVar' ars (IntMap.insert ix a)
       Nothing -> return ()
     return (ix, var)
-  -- FIXME: handle exceptions
-  Raw.sendRequest loggingOptions (snd streams) ix rq
+  handle (\(e :: IOException) -> do
+              Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
+              atomically $ do
+                modifyTVar' srs $ IntMap.delete ix
+                case ar of
+                  Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
+                  Nothing -> return ()
+              re) $
+    Raw.sendRequest lopts ostream ix rq
   atomically $ takeTMVar var
 
 
@@ -283,25 +385,37 @@ sendRequestAsync :: DMCCHandle
                  -- processor.
                  -> Request
                  -> IO ()
-sendRequestAsync (DMCCHandle{..}) aid rq =
-  sendRequestAsyncRaw loggingOptions (snd streams) invokeId a' rq
-  where
-    a' = (agentRequests, ) <$> aid
+sendRequestAsync (DMCCHandle{..}) aid rq = do
+  -- TODO Wait for both I/O and session
+  (_, ostream, _) <- atomically $ readTMVar connection
+  sendRequestAsyncRaw
+    loggingOptions
+    ostream
+    reconnect
+    invokeId
+    ((agentRequests, ) <$> aid)
+    rq
 
 
 sendRequestAsyncRaw :: Maybe LoggingOptions
                     -> OutputStream ByteString
+                    -> IO ()
                     -> TVar Int
                     -> Maybe (TVar (IntMap.IntMap AgentId), AgentId)
                     -> Request
                     -> IO ()
-sendRequestAsyncRaw lopts ostream invoke ar rq = do
+sendRequestAsyncRaw lopts ostream re invoke ar rq = do
   ix <- atomically $ do
-    modifyTVar' invoke ((`mod` 9999).(+1))
+    modifyTVar' invoke ((`mod` 9999) . (+1))
     ix' <- readTVar invoke
     case ar of
-      Just (agentRequests, a) -> modifyTVar' agentRequests (IntMap.insert ix' a)
+      Just (ars, a) -> modifyTVar' ars (IntMap.insert ix' a)
       Nothing -> return ()
     return ix'
-  -- FIXME: handle exceptions
-  Raw.sendRequest lopts ostream ix rq
+  handle (\(e :: IOException) -> do
+              Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
+              atomically $ case ar of
+                             Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
+                             Nothing -> return ()
+              re) $
+    Raw.sendRequest lopts ostream ix rq

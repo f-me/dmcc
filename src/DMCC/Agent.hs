@@ -140,7 +140,19 @@ instance Show Agent where
     "}"
 
 
-type AgentHandle = (AgentId, Session)
+newtype AgentHandle = AgentHandle (AgentId, Session)
+
+
+instance Ord AgentHandle where
+  compare (AgentHandle (aid1, _)) (AgentHandle (aid2, _)) = compare aid1 aid2
+
+
+instance Eq AgentHandle where
+  (AgentHandle (aid1, _)) == (AgentHandle (aid2, _)) = aid1 == aid2
+
+
+instance Show AgentHandle where
+  show (AgentHandle (aid, _)) = show aid
 
 
 -- | Exceptions thrown by agent-related routines and threads.
@@ -161,7 +173,7 @@ instance (Exception AgentError)
 -- gone (released) by the time an action arrives to its actionChan.
 -- This is by design to avoid congestion during action processing.
 agentAction :: Action -> AgentHandle -> IO ()
-agentAction cmd (aid, as) = do
+agentAction cmd (AgentHandle (aid, as)) = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
     Just (Agent{..}) -> atomically $ writeTChan actionChan cmd
@@ -169,11 +181,12 @@ agentAction cmd (aid, as) = do
 
 
 placeAgentLock :: AgentHandle -> STM ()
-placeAgentLock (aid, as) = modifyTVar' (agentLocks as) (Set.insert aid)
+placeAgentLock (AgentHandle (aid, as)) =
+  modifyTVar' (agentLocks as) (Set.insert aid)
 
 
 releaseAgentLock :: AgentHandle -> IO ()
-releaseAgentLock (aid, as) =
+releaseAgentLock (AgentHandle (aid, as)) =
   atomically $ modifyTVar' (agentLocks as) (Set.delete aid)
 
 
@@ -187,6 +200,7 @@ controlAgent :: SwitchName
              -> IO (Either AgentError AgentHandle)
 controlAgent switch ext as = do
   let aid = AgentId (switch, ext)
+      ah  = AgentHandle (aid, as)
   -- Check if agent already exists
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)
@@ -197,11 +211,11 @@ controlAgent switch ext as = do
         case Map.member aid ags of
           True -> return $ Just aid
           -- Prevent parallel operation on the same agent
-          False -> placeAgentLock (aid, as) >> return Nothing
+          False -> placeAgentLock ah >> return Nothing
 
   case prev of
-    Just a -> return $ Right (a, as)
-    Nothing -> try $ flip onException (releaseAgentLock (aid, as)) $
+    Just a -> return $ Right $ AgentHandle (a, as)
+    Nothing -> try $ flip onException (releaseAgentLock ah) $
       do
         -- Get Avaya info for this agent (note that requests are not
         -- attached to the agent (Nothing) as it has not been inserted
@@ -314,8 +328,8 @@ controlAgent switch ext as = do
                  eventChan
                  snapshot
         atomically $ modifyTVar' (agents as) (Map.insert aid ag)
-        releaseAgentLock (aid, as)
-        return (aid, as)
+        releaseAgentLock ah
+        return ah
 
 
 -- | Translate agent actions into actual DMCC API requests.
@@ -538,7 +552,7 @@ sendWH (req, mgr) aid payload = do
 -- | Forget about an agent, releasing his device and monitors.
 releaseAgent :: AgentHandle
              -> IO ()
-releaseAgent (aid, as) = do
+releaseAgent ah@(AgentHandle (aid, as)) = do
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)
     case Set.member aid locks of
@@ -546,14 +560,14 @@ releaseAgent (aid, as) = do
       False -> do
         ags <- readTVar (agents as)
         case Map.lookup aid ags of
-          Just ag -> placeAgentLock (aid, as) >> (return $ Just ag)
+          Just ag -> placeAgentLock ah >> (return $ Just ag)
           Nothing -> return Nothing
 
   case prev of
     Nothing -> throwIO $ UnknownAgent aid
     Just ag ->
       handle (\e ->
-                releaseAgentLock (aid, as) >>
+                releaseAgentLock ah >>
                 (throwIO (e :: IOException))) $
       do
         sendRequestSync (dmccHandle as) (Just aid) $
@@ -567,12 +581,13 @@ releaseAgent (aid, as) = do
         killThread (rspThread ag)
         killThread (stateThread ag)
         atomically $ modifyTVar' (agents as) (Map.delete aid)
-        releaseAgentLock (aid, as)
+        releaseAgentLock ah
         return ()
 
 
+-- | Attach an event handler to an agent. Exceptions are not handled.
 handleEvents :: AgentHandle -> (AgentEvent -> IO ()) -> IO ThreadId
-handleEvents (aid, as) handler = do
+handleEvents (AgentHandle (aid, as)) handler = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
     Nothing -> throwIO $ UnknownAgent aid
@@ -587,7 +602,7 @@ handleEvents (aid, as) handler = do
 
 getAgentSnapshot :: AgentHandle
                  -> IO AgentSnapshot
-getAgentSnapshot (aid, as) = do
+getAgentSnapshot (AgentHandle (aid, as)) = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
     Nothing -> throwIO $ UnknownAgent aid

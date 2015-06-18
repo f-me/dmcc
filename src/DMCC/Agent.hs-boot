@@ -13,7 +13,7 @@ import {-# SOURCE #-} DMCC.Session
 data Agent
 
 
-type AgentHandle = (AgentId, Session)
+newtype AgentHandle = AgentHandle (AgentId, Session)
 
 
 monitorId :: Agent -> Text
