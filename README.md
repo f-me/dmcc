@@ -43,10 +43,11 @@ JSON:
 Consult `DMCC.Action` documentation in Haddock docs for DMCC library
 for supported commands.
 
-The server reports telephony events along with updated agent state:
+The server reports telephony events along with updated agent snapshot:
 
     {
-      "newState": {
+      "newSnapshot": {
+        "state": ["Busy", ""],
         "calls": {
           "179": {
             "failed": false,

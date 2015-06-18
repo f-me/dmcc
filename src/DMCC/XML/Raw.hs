@@ -62,7 +62,8 @@ sendRequest lopts h ix rq =
         putLazyByteString rawRequest
 
 
--- FIXME: error
+-- | Read a CSTA message from an input stream. Throws
+-- 'ReadTooShortException'.
 readResponse :: Maybe LoggingOptions
              -> InputStream S.ByteString
              -> IO (Response, Int)
@@ -71,15 +72,12 @@ readResponse lopts h = do
   let readLazy i = do
         v <- Streams.readExactly i h
         return $ L.fromChunks [v]
-  res <- try $ runGet readHeader <$> readLazy 8
-  case res of
-    Left err -> fail $ "Header: " ++ show (err :: SomeException)
-    Right (len, invokeId) -> do
-      resp <- readLazy (len - 8)
-      maybeSyslog lopts Debug $
-        "Received response (invokeId=" ++ show invokeId ++ ") " ++
-        (show $ L8.unpack resp)
-      return (fromXml resp, invokeId)
+  (len, invokeId) <- runGet readHeader <$> readLazy 8
+  resp <- readLazy (len - 8)
+  maybeSyslog lopts Debug $
+    "Received response (invokeId=" ++ show invokeId ++ ") " ++
+    (show $ L8.unpack resp)
+  return (fromXml resp, invokeId)
   where
     readHeader = do
       skip 2 -- version

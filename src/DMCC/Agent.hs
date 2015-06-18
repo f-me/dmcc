@@ -156,12 +156,16 @@ instance (Exception AgentError)
 
 
 -- | Command an agent to do something.
+--
+-- Due to lack of global locking of the agents map an agent may be
+-- gone (released) by the time an action arrives to its actionChan.
+-- This is by design to avoid congestion during action processing.
 agentAction :: Action -> AgentHandle -> IO ()
 agentAction cmd (aid, as) = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
     Just (Agent{..}) -> atomically $ writeTChan actionChan cmd
-    Nothing -> error "No such agent"
+    Nothing -> throwIO $ UnknownAgent aid
 
 
 placeAgentLock :: AgentHandle -> STM ()
