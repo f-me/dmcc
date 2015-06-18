@@ -93,6 +93,8 @@ data AgentEvent = TelephonyEvent
                 | StateChange{newSnapshot :: AgentSnapshot}
                 -- ^ Arrives when an agent state change has been
                 -- observed.
+                | TelephonyEventError{errorText :: String}
+                -- ^ An error caused by a telephony-related event.
                 | RequestError{errorText :: String}
                 -- ^ An error caused by a request from this agent.
                 deriving Show
@@ -384,14 +386,13 @@ processAgentEvent aid device snapshot eventChan wh rs = do
                   -> String
                   -- ^ Error message if no such call found
                   -> STM ()
-    callOperation callId callMod err =
-        modifyTVar' snapshot $
-          \m ->
-            case Map.lookup callId (_calls m) of
-              Just call ->
-                m & calls %~ (callMod call)
-              Nothing ->
-                error err
+    callOperation callId callMod err = do
+      s <- readTVar snapshot
+      case Map.lookup callId (_calls s) of
+        Just call ->
+          modifyTVar' snapshot $ \m -> m & calls %~ (callMod call)
+        Nothing ->
+          writeTChan eventChan $ TelephonyEventError err
   now <- getCurrentTime
   case rs of
     Rs.CSTAErrorCodeResponse err ->
