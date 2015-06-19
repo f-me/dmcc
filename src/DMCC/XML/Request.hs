@@ -12,6 +12,7 @@ where
 import qualified Data.ByteString.Lazy as L
 import           Data.CaseInsensitive
 import qualified Data.Map as Map
+import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as T
 
@@ -28,6 +29,7 @@ data Request
     , userName :: Text
     , password :: Text
     , sessionCleanupDelay :: Int
+    , oldSessionID :: Maybe Text
     , requestedSessionDuration :: Int
     }
   | StopApplicationSession
@@ -198,6 +200,7 @@ toXml rq = renderLBS def $ case rq of
             <acx:userName>#{userName}
             <acx:password>#{password}
             <acx:sessionCleanupDelay>#{T.pack $ show sessionCleanupDelay}
+            <acx:sessionID>#{fromMaybe T.empty oldSessionID}
       <requestedProtocolVersions>
         <protocolVersion>#{getProtocolString requestedProtocolVersion}
       <requestedSessionDuration>#{T.pack $ show requestedSessionDuration}

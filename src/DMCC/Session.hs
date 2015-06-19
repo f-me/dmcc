@@ -179,8 +179,12 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
               return (is, os, cl)
 
     -- Start new DMCC session
-    startDMCCSession :: OutputStream ByteString -> IO ((Text, Int), Text)
-    startDMCCSession ostream = do
+    startDMCCSession :: OutputStream ByteString
+                     -> Maybe Text
+                     -- ^ Previous session ID (we attempt to recover
+                     -- when this is given).
+                     -> IO ((Text, Int), Text)
+    startDMCCSession ostream old = do
       Just Rs.StartApplicationSessionPosResponse{..} <-
         sendRequestSyncRaw
         lopts
@@ -195,6 +199,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
         , userName = user
         , password = pass
         , sessionCleanupDelay = 80
+        , oldSessionID = old
         , requestedSessionDuration = 80
         }
 
@@ -206,7 +211,10 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
     reconnect = do
       Raw.maybeSyslog lopts Warning "Attempting reconnection"
       -- Only one reconnection at a time
-      (_, _, cl) <- atomically $ takeTMVar sess >> takeTMVar conn
+      (oldId, cl) <- atomically $ do
+        (oldId, _) <- takeTMVar sess
+        (_, _, cl) <- takeTMVar conn
+        return (oldId, cl)
       -- Fail all pending synchronous requests
       atomically $ do
         srs <- readTVar syncResponses
@@ -222,7 +230,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
       atomically $ putTMVar conn c
       Raw.maybeSyslog lopts Warning "Connection re-established"
       void $ forkIO $ do
-        (newSession, _) <- startDMCCSession ostream
+        (newSession, _) <- startDMCCSession ostream (Just oldId)
         atomically $ putTMVar sess newSession
 
   -- Read DMCC responses from socket
@@ -302,7 +310,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
   -- Start the session
   c@(_, ostream, _) <- connect
   atomically $ putTMVar conn c
-  (newSession, actualProtocolVersion) <- startDMCCSession ostream
+  (newSession, actualProtocolVersion) <- startDMCCSession ostream Nothing
   atomically $ putTMVar sess newSession
 
   wh <- case whUrl of
