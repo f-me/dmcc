@@ -79,7 +79,7 @@ data DMCCHandle = DMCCHandle
   -- ^ Response handler/synchronous requests worker thread.
   , invokeId :: TVar Int
   -- ^ Request/response counter.
-  , syncResponses :: TVar (IntMap.IntMap (TMVar Response))
+  , syncResponses :: TVar (IntMap.IntMap (TMVar (Maybe Response)))
   , agentRequests :: TVar (IntMap.IntMap AgentId)
   -- ^ Keeps track of which request has has been issued by what agent
   -- (if there's one) until its response arrives.
@@ -181,7 +181,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
     -- Start new DMCC session
     startDMCCSession :: OutputStream ByteString -> IO ((Text, Int), Text)
     startDMCCSession ostream = do
-      Rs.StartApplicationSessionPosResponse{..} <-
+      Just Rs.StartApplicationSessionPosResponse{..} <-
         sendRequestSyncRaw
         lopts
         ostream
@@ -247,7 +247,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
           modifyTVar' syncResponses (IntMap.delete invokeId)
           return $ IntMap.lookup invokeId srs
         case sync' of
-          Just sync -> void $ atomically $ tryPutTMVar sync rsp
+          Just sync -> void $ atomically $ tryPutTMVar sync $ Just rsp
           Nothing -> return ()
         -- Redirect events and request errors to matching agent
         ag' <- case rsp of
@@ -337,7 +337,12 @@ stopSession as@(Session{..}) = do
   cleanup
 
 
--- | Send a request and block until the response arrives.
+-- | Send a request and block until the response arrives or a write
+-- exception occurs. Write exceptions cause a reconnection and a
+-- session restart, Nothing is returned in this case.
+--
+-- Write errors are made explicit here because 'sendRequestSync' is
+-- called from multiple locations.
 sendRequestSync :: DMCCHandle
                 -> Maybe AgentId
                 -- ^ Push erroneous responses to this agent's event
@@ -346,7 +351,7 @@ sendRequestSync :: DMCCHandle
                 -- TODO Disallow unknown agents on type level (use
                 -- AgentHandle).
                 -> Request
-                -> IO Response
+                -> IO (Maybe Response)
 sendRequestSync (DMCCHandle{..}) aid rq = do
   (_, ostream, _) <- atomically $ readTMVar dmccSession >> readTMVar connection
   sendRequestSyncRaw
@@ -364,10 +369,10 @@ sendRequestSyncRaw :: Maybe LoggingOptions
                    -> IO ()
                    -- ^ Reconnection action.
                    -> TVar Int
-                   -> TVar (IntMap.IntMap (TMVar Response))
+                   -> TVar (IntMap.IntMap (TMVar (Maybe Response)))
                    -> Maybe (TVar (IntMap.IntMap AgentId), AgentId)
                    -> Request
-                   -> IO Response
+                   -> IO (Maybe Response)
 sendRequestSyncRaw lopts ostream re invoke srs ar rq = do
   (ix, var) <- atomically $ do
     modifyTVar' invoke ((`mod` 9999) . (+1))
@@ -381,6 +386,7 @@ sendRequestSyncRaw lopts ostream re invoke srs ar rq = do
   handle (\(e :: SomeException) -> do
               Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
               atomically $ do
+                putTMVar var Nothing
                 modifyTVar' srs $ IntMap.delete ix
                 case ar of
                   Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)

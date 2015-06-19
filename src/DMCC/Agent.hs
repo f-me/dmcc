@@ -229,9 +229,9 @@ controlAgent switch ext as = do
 
         device <-
           case gdiRsp of
-            Rs.GetDeviceIdResponse device ->
+            Just (Rs.GetDeviceIdResponse device) ->
               return device
-            Rs.CSTAErrorCodeResponse errorCode ->
+            Just (Rs.CSTAErrorCodeResponse errorCode) ->
               throwIO $ DeviceError $ unpack errorCode
             _ ->
               throwIO $ DeviceError "Bad GetDeviceId response"
@@ -245,9 +245,9 @@ controlAgent switch ext as = do
 
         monitorCrossRefID <-
           case msrRsp of
-            Rs.MonitorStartResponse monitorCrossRefID ->
+            Just (Rs.MonitorStartResponse monitorCrossRefID) ->
               return monitorCrossRefID
-            Rs.CSTAErrorCodeResponse errorCode ->
+            Just (Rs.CSTAErrorCodeResponse errorCode) ->
               throwIO $ MonitoringError $ unpack errorCode
             _ ->
               throwIO $ DeviceError "Bad MonitorStart response"
@@ -282,10 +282,10 @@ controlAgent switch ext as = do
               , acceptedProtocol = protocolVersion as
               }
         case gsRsp' of
-          Rs.GetAgentStateResponse{..} ->
+          Just (Rs.GetAgentStateResponse{..}) ->
             atomically $
             modifyTVar' snapshot (state .~ (agentState, reasonCode))
-          Rs.CSTAErrorCodeResponse errorCode ->
+          Just (Rs.CSTAErrorCodeResponse errorCode) ->
             throwIO $ StatePollingError $ unpack errorCode
           _ ->
             throwIO $ DeviceError "Bad GetAgentState response"
@@ -298,7 +298,7 @@ controlAgent switch ext as = do
               , acceptedProtocol = protocolVersion as
               }
             case gsRsp of
-              Rs.GetAgentStateResponse{..} -> do
+              Just (Rs.GetAgentStateResponse{..}) -> do
                 ns <- atomically $ do
                   sn <- readTVar snapshot
                   case (_state sn /= (agentState, reasonCode)) of
@@ -351,14 +351,14 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
   in
   case action of
     MakeCall toNumber -> do
-      rspDest <-
+      Just rspDest <-
         sendRequestSync (dmccHandle as) (Just aid) $
         Rq.GetThirdPartyDeviceId
         -- Assume destination switch is the same as agent's
         { switchName = switch
         , extension = toNumber
         }
-      mcr <- sendRequestSync (dmccHandle as) (Just aid) $
+      Just mcr <- sendRequestSync (dmccHandle as) (Just aid) $
         Rq.MakeCall
         device
         (Rs.device rspDest)
@@ -429,8 +429,9 @@ processAgentEvent aid device snapshot eventChan as rs = do
         case Map.member callId (_calls s) of
           True -> return s
           False -> do
-            gcldr <- sendRequestSync (dmccHandle as) (Just aid) $
-                     Rq.GetCallLinkageData device callId (protocolVersion as)
+            Just gcldr <-
+              sendRequestSync (dmccHandle as) (Just aid) $
+              Rq.GetCallLinkageData device callId (protocolVersion as)
             case gcldr of
               Rs.GetCallLinkageDataResponse ucid ->
                 atomically $ do
