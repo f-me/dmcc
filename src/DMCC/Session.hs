@@ -38,10 +38,7 @@ import qualified Data.IntMap.Strict as IntMap
 import           Data.Text (Text, unpack)
 
 import           System.IO
-import           System.IO.Streams (InputStream,
-                                    OutputStream,
-                                    ReadTooShortException,
-                                    write)
+import           System.IO.Streams (InputStream, OutputStream, write)
 import           System.IO.Streams.Handle
 import qualified System.IO.Streams.SSL as SSLStreams
 import           System.Posix.Syslog
@@ -70,6 +67,8 @@ data ConnectionType = Plain
 data DMCCHandle = DMCCHandle
   { connection :: TMVar (InputStream ByteString, OutputStream ByteString, IO ())
   -- ^ AVAYA server socket streams and connection cleanup action.
+  , dmccSession :: TMVar (Text, Int)
+  -- ^ DMCC session ID and duration.
   , reconnect :: IO ()
   -- ^ Reconnect to AVAYA server, changing socket streams, cleanup
   -- action and session.
@@ -90,9 +89,7 @@ data DMCCHandle = DMCCHandle
 
 -- | Library API session.
 data Session = Session
-  { sessionId :: TMVar (Text, Int)
-  -- ^ Session ID and duration.
-  , protocolVersion :: Text
+  { protocolVersion :: Text
   , dmccHandle :: DMCCHandle
   , pingThread :: ThreadId
   , webHook :: Maybe (HTTP.Request, HTTP.Manager)
@@ -137,10 +134,14 @@ startSession :: (String, PortNumber)
              -> SessionOptions
              -> IO Session
 startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
-  conn <- newEmptyTMVarIO
   syncResponses <- newTVarIO IntMap.empty
   agentRequests <- newTVarIO IntMap.empty
   invoke <- newTVarIO 0
+
+  -- When this is empty, I/O streams to the server are not ready.
+  conn <- newEmptyTMVarIO
+  -- When this is empty, DMCC session is not ready or is being
+  -- recovered.
   sess <- newEmptyTMVarIO
 
   let
@@ -151,7 +152,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
         connect1 attempts =
           handle
           -- Attempt to connect several times
-          (\(e :: IOException) -> do
+          (\(e :: SomeException) -> do
                Raw.maybeSyslog lopts Critical ("Connection failed: " ++ show e)
                if attempts > 0
                then do
@@ -202,13 +203,15 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
 
       return ((sessionID, actualSessionDuration), actualProtocolVersion)
 
-    -- Recreate I/O and API session
+    -- Restart I/O and DMCC session. This routine returns when new I/O
+    -- streams become available (starting DMCC session requires
+    -- response reader thread to be functional).
     reconnect = do
       Raw.maybeSyslog lopts Warning "Attempting reconnection"
       -- Only one reconnection at a time
       (_, _, cl) <- atomically $ takeTMVar sess >> takeTMVar conn
       handle
-        (\(e :: IOException) ->
+        (\(e :: SomeException) ->
            Raw.maybeSyslog lopts Error $
            "Failed to close old connection: " ++ show e)
         cl
@@ -216,8 +219,9 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
       c@(_, ostream, _) <- connect
       atomically $ putTMVar conn c
       Raw.maybeSyslog lopts Warning "Connection re-established"
-      (newSession, _) <- startDMCCSession ostream
-      atomically $ putTMVar sess newSession
+      void $ forkIO $ do
+        (newSession, _) <- startDMCCSession ostream
+        atomically $ putTMVar sess newSession
 
   -- Read DMCC responses from socket
   msgChan <- newTChanIO
@@ -227,9 +231,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
   readThread <-
     forkIO $ forever $ do
       (istream, _, _) <- atomically $ readTMVar conn
-      flip catches [ Handler (\(e :: IOException) -> exHandler e)
-                   , Handler (\(e :: ReadTooShortException) -> exHandler e)
-                   ] $
+      handle (\(e :: SomeException) -> exHandler e) $
         Raw.readResponse lopts istream >>=
         atomically . writeTChan msgChan . first DMCCRsp
 
@@ -270,6 +272,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
   agLocks <- newTVarIO Set.empty
   let h = DMCCHandle
           conn
+          sess
           reconnect
           readThread
           procThread
@@ -285,10 +288,15 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
   (newSession, actualProtocolVersion) <- startDMCCSession ostream
   atomically $ putTMVar sess newSession
 
-  -- Keep session alive
+  -- Keep the session alive
   pingThread <- forkIO $ forever $ do
-    (s, actualSessionDuration) <- atomically $ readTMVar sess
+    -- This may break if the actual session duration timer becomes
+    -- smaller after session recovery.
+    (_, actualSessionDuration) <- atomically $ readTMVar sess
     threadDelay $ actualSessionDuration * 500 * 1000
+    -- Do not send a keep-alive message if the session is not ready
+    -- yet.
+    (s, _) <- atomically $ readTMVar sess
     sendRequestAsync h Nothing
       $ Rq.ResetApplicationSessionTimer
             { sessionId = s
@@ -304,7 +312,6 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
 
   return $
     Session
-    sess
     actualProtocolVersion
     h
     pingThread
@@ -318,7 +325,7 @@ stopSession :: Session -> IO ()
 stopSession as@(Session{..}) = do
   -- Release all agents
   ags <- readTVarIO agents
-  (s, _) <- atomically $ readTMVar sessionId
+  (s, _) <- atomically $ readTMVar $ dmccSession dmccHandle
   mapM_ releaseAgent $
     zipWith (\aid as -> AgentHandle (aid, as)) (Map.keys ags) (repeat as)
 
@@ -343,8 +350,7 @@ sendRequestSync :: DMCCHandle
                 -> Request
                 -> IO Response
 sendRequestSync (DMCCHandle{..}) aid rq = do
-  -- TODO Wait for both I/O and session
-  (_, ostream, _) <- atomically $ readTMVar connection
+  (_, ostream, _) <- atomically $ readTMVar dmccSession >> readTMVar connection
   sendRequestSyncRaw
     loggingOptions
     ostream
@@ -374,7 +380,7 @@ sendRequestSyncRaw lopts ostream re invoke srs ar rq = do
       Just (ars, a) -> modifyTVar' ars (IntMap.insert ix a)
       Nothing -> return ()
     return (ix, var)
-  handle (\(e :: IOException) -> do
+  handle (\(e :: SomeException) -> do
               Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
               atomically $ do
                 modifyTVar' srs $ IntMap.delete ix
@@ -393,8 +399,7 @@ sendRequestAsync :: DMCCHandle
                  -> Request
                  -> IO ()
 sendRequestAsync (DMCCHandle{..}) aid rq = do
-  -- TODO Wait for both I/O and session
-  (_, ostream, _) <- atomically $ readTMVar connection
+  (_, ostream, _) <- atomically $ readTMVar dmccSession >> readTMVar connection
   sendRequestAsyncRaw
     loggingOptions
     ostream
@@ -419,7 +424,7 @@ sendRequestAsyncRaw lopts ostream re invoke ar rq = do
       Just (ars, a) -> modifyTVar' ars (IntMap.insert ix' a)
       Nothing -> return ()
     return ix'
-  handle (\(e :: IOException) -> do
+  handle (\(e :: SomeException) -> do
               Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
               atomically $ case ar of
                              Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
