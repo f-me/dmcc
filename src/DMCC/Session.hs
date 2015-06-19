@@ -72,6 +72,7 @@ data DMCCHandle = DMCCHandle
   , reconnect :: IO ()
   -- ^ Reconnect to AVAYA server, changing socket streams, cleanup
   -- action and session.
+  , pingThread :: ThreadId
   , readThread :: ThreadId
   -- ^ DMCC response reader thread.
   , procThread :: ThreadId
@@ -91,7 +92,6 @@ data DMCCHandle = DMCCHandle
 data Session = Session
   { protocolVersion :: Text
   , dmccHandle :: DMCCHandle
-  , pingThread :: ThreadId
   , webHook :: Maybe (HTTP.Request, HTTP.Manager)
   -- ^ Web hook handler URL and manager.
   , agents :: TVar (Map.Map AgentId Agent)
@@ -119,7 +119,6 @@ defaultSessionOptions :: SessionOptions
 defaultSessionOptions = SessionOptions 1 12 10
 
 
---FIXME: handle network errors
 startSession :: (String, PortNumber)
              -- ^ Host and port of AES server.
              -> ConnectionType
@@ -182,15 +181,6 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
     -- Start new DMCC session
     startDMCCSession :: OutputStream ByteString -> IO ((Text, Int), Text)
     startDMCCSession ostream = do
-      let startReq =
-            Rq.StartApplicationSession
-            { applicationId = ""
-            , requestedProtocolVersion = Rq.DMCC_6_2
-            , userName = user
-            , password = pass
-            , sessionCleanupDelay = 80
-            , requestedSessionDuration = 80
-            }
       Rs.StartApplicationSessionPosResponse{..} <-
         sendRequestSyncRaw
         lopts
@@ -198,8 +188,15 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
         reconnect
         invoke
         syncResponses
-        Nothing
-        startReq
+        Nothing $
+        Rq.StartApplicationSession
+        { applicationId = ""
+        , requestedProtocolVersion = Rq.DMCC_6_2
+        , userName = user
+        , password = pass
+        , sessionCleanupDelay = 80
+        , requestedSessionDuration = 80
+        }
 
       return ((sessionID, actualSessionDuration), actualProtocolVersion)
 
@@ -269,11 +266,26 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
           Nothing -> return ()
       _ -> return ()
 
-  agLocks <- newTVarIO Set.empty
+  -- Keep the session alive
+  pingThread <- forkIO $ forever $ do
+    -- Do not send a keep-alive message if I/O is unavailable or the
+    -- session is not ready yet.
+    (ostream, (sid, duration)) <- atomically $ do
+      (_, ostream, _) <- readTMVar conn
+      s <- readTMVar sess
+      return (ostream, s)
+    sendRequestAsyncRaw lopts ostream reconnect invoke Nothing $
+      Rq.ResetApplicationSessionTimer
+      { sessionId = sid
+      , requestedSessionDuration = duration
+      }
+    threadDelay $ duration * 500 * 1000
+
   let h = DMCCHandle
           conn
           sess
           reconnect
+          pingThread
           readThread
           procThread
           invoke
@@ -288,21 +300,6 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
   (newSession, actualProtocolVersion) <- startDMCCSession ostream
   atomically $ putTMVar sess newSession
 
-  -- Keep the session alive
-  pingThread <- forkIO $ forever $ do
-    -- This may break if the actual session duration timer becomes
-    -- smaller after session recovery.
-    (_, actualSessionDuration) <- atomically $ readTMVar sess
-    threadDelay $ actualSessionDuration * 500 * 1000
-    -- Do not send a keep-alive message if the session is not ready
-    -- yet.
-    (s, _) <- atomically $ readTMVar sess
-    sendRequestAsync h Nothing
-      $ Rq.ResetApplicationSessionTimer
-            { sessionId = s
-            , requestedSessionDuration = actualSessionDuration
-            }
-
   wh <- case whUrl of
           Just url -> do
             mgr <- HTTP.newManager HTTP.defaultManagerSettings
@@ -310,11 +307,12 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
             return $ Just (req, mgr)
           Nothing -> return Nothing
 
+  agLocks <- newTVarIO Set.empty
+
   return $
     Session
     actualProtocolVersion
     h
-    pingThread
     wh
     agents
     agLocks
@@ -331,7 +329,7 @@ stopSession as@(Session{..}) = do
 
   sendRequestAsync dmccHandle Nothing $
     Rq.StopApplicationSession{sessionID = s}
-  killThread pingThread
+  killThread $ pingThread dmccHandle
   killThread $ procThread dmccHandle
   killThread $ readThread dmccHandle
   (_, ostream, cleanup) <- atomically $ readTMVar (connection dmccHandle)
