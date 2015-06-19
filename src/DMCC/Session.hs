@@ -207,6 +207,11 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
       Raw.maybeSyslog lopts Warning "Attempting reconnection"
       -- Only one reconnection at a time
       (_, _, cl) <- atomically $ takeTMVar sess >> takeTMVar conn
+      -- Fail all pending synchronous requests
+      atomically $ do
+        srs <- readTVar syncResponses
+        mapM_ (`putTMVar` Nothing) $ IntMap.elems srs
+        writeTVar syncResponses IntMap.empty
       handle
         (\(e :: SomeException) ->
            Raw.maybeSyslog lopts Error $
