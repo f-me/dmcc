@@ -123,7 +123,10 @@ data LoggingOptions = LoggingOptions
 
 data SessionOptions = SessionOptions
   { statePollingDelay :: Int
-    -- ^ How often to poll every agent for state changes (in seconds).
+  -- ^ How often to poll every agent for state changes (in seconds).
+  , sessionDuration :: Int
+  -- ^ Serves both as session duration and session cleanup delay (in
+  -- seconds).
   , connectionRetryAttempts :: Int
   , connectionRetryDelay :: Int
   -- ^ In seconds.

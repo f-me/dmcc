@@ -116,7 +116,7 @@ defaultLoggingOptions = LoggingOptions "dmcc-lib"
 
 
 defaultSessionOptions :: SessionOptions
-defaultSessionOptions = SessionOptions 1 12 10
+defaultSessionOptions = SessionOptions 1 12 10 120
 
 
 startSession :: (String, PortNumber)
@@ -198,9 +198,9 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
         , requestedProtocolVersion = Rq.DMCC_6_2
         , userName = user
         , password = pass
-        , sessionCleanupDelay = 80
+        , sessionCleanupDelay = sessionDuration sopts
         , oldSessionID = old
-        , requestedSessionDuration = 80
+        , requestedSessionDuration = sessionDuration sopts
         }
 
       return ((sessionID, actualSessionDuration), actualProtocolVersion)
