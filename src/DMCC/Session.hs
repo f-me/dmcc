@@ -1,3 +1,4 @@
+{-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -118,7 +119,7 @@ defaultLoggingOptions = LoggingOptions "dmcc-lib"
 
 
 defaultSessionOptions :: SessionOptions
-defaultSessionOptions = SessionOptions 1
+defaultSessionOptions = SessionOptions 1 12 10
 
 
 --FIXME: handle network errors
@@ -145,31 +146,37 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
   let
     -- Connect to the server, produce I/O streams and a cleanup action
     connect :: IO (InputStream ByteString, OutputStream ByteString, IO ())
-    connect = do
-      handle
-        (\(e :: IOException) ->
-           Raw.maybeSyslog lopts Critical
-           ("Connection failed: " ++ show e) >>
-           throwIO e) $
-        case ct of
-          Plain -> do
-            h <- connectTo host (PortNumber $ fromIntegral port)
-            hSetBuffering h NoBuffering
-            is <- handleToInputStream h
-            os <- handleToOutputStream h
-            let cl = hClose h
-            return (is, os, cl)
-          TLS caDir -> do
-            sslCtx <- SSL.context
-            SSL.contextSetDefaultCiphers sslCtx
-            SSL.contextSetVerificationMode sslCtx $
-              SSL.VerifyPeer True True Nothing
-            maybe (return ()) (SSL.contextSetCADirectory sslCtx) caDir
-            (is, os, ssl) <- SSLStreams.connect sslCtx host port
-            let cl = do
-                  SSL.shutdown ssl SSL.Unidirectional
-                  maybe (return ()) close $ SSL.sslSocket ssl
-            return (is, os, cl)
+    connect = connect1 (connectionRetryAttempts sopts)
+      where
+        connect1 attempts =
+          handle
+          -- Attempt to connect several times
+          (\(e :: IOException) -> do
+               Raw.maybeSyslog lopts Critical ("Connection failed: " ++ show e)
+               if attempts > 0
+               then do
+                 threadDelay $ (connectionRetryDelay sopts) * 1000000
+                 connect1 (attempts - 1)
+               else throwIO e) $
+          case ct of
+            Plain -> do
+              h <- connectTo host (PortNumber $ fromIntegral port)
+              hSetBuffering h NoBuffering
+              is <- handleToInputStream h
+              os <- handleToOutputStream h
+              let cl = hClose h
+              return (is, os, cl)
+            TLS caDir -> do
+              sslCtx <- SSL.context
+              SSL.contextSetDefaultCiphers sslCtx
+              SSL.contextSetVerificationMode sslCtx $
+                SSL.VerifyPeer True True Nothing
+              maybe (return ()) (SSL.contextSetCADirectory sslCtx) caDir
+              (is, os, ssl) <- SSLStreams.connect sslCtx host port
+              let cl = do
+                    SSL.shutdown ssl SSL.Unidirectional
+                    maybe (return ()) close $ SSL.sslSocket ssl
+              return (is, os, cl)
 
     -- Start new DMCC session
     startDMCCSession :: OutputStream ByteString -> IO ((Text, Int), Text)
