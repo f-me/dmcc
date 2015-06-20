@@ -50,6 +50,9 @@ data Config =
   , stateDelay :: Int
   , switchName :: SwitchName
   , logLibrary :: Bool
+  , sessDur    :: Int
+  , connAtts   :: Int
+  , connDelay  :: Int
   }
   deriving Show
 
@@ -85,6 +88,9 @@ realMain config = do
       <*> Cfg.lookupDefault 1 c "state-polling-delay"
       <*> (SwitchName <$> Cfg.require c "switch-name")
       <*> Cfg.require c "log-library"
+      <*> Cfg.require c "session-duration"
+      <*> Cfg.require c "connection-retry-attempts"
+      <*> Cfg.require c "connection-retry-delay"
 
   bracket
     (syslog Info ("Starting session using " ++ show cfg) >>
@@ -93,7 +99,11 @@ realMain config = do
      apiUser apiPass
      whUrl
      (if logLibrary then Just defaultLoggingOptions else Nothing)
-     defaultSessionOptions{statePollingDelay = stateDelay})
+     defaultSessionOptions{ statePollingDelay = stateDelay
+                          , sessionDuration = sessDur
+                          , connectionRetryAttempts = connAtts
+                          , connectionRetryDelay = connDelay
+                          })
     (\s ->
        syslog Info ("Stopping " ++ show s) >>
        stopSession s)

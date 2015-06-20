@@ -128,7 +128,7 @@ defaultLoggingOptions = LoggingOptions "dmcc-lib"
 
 
 defaultSessionOptions :: SessionOptions
-defaultSessionOptions = SessionOptions 1 12 10 120
+defaultSessionOptions = SessionOptions 1 120 24 5
 
 
 startSession :: (String, PortNumber)
