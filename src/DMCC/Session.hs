@@ -199,17 +199,16 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
               return (is, os, cl)
 
     -- Start new DMCC session
-    startDMCCSession :: OutputStream ByteString
-                     -> Maybe Text
+    startDMCCSession :: Maybe Text
                      -- ^ Previous session ID (we attempt to recover
                      -- when this is given).
                      -> IO ((Text, Int), Text)
-    startDMCCSession ostream old = do
+    startDMCCSession old = do
       let
         startReq sid =
           sendRequestSyncRaw
           lopts
-          ostream
+          conn
           reconnect
           invoke
           syncResponses
@@ -259,11 +258,10 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
            "Failed to close old connection: " ++ show e)
         cl
       -- We do not change the protocol version during session recovery
-      c@(_, ostream, _) <- connect
-      atomically $ putTMVar conn c
+      connect >>= atomically . putTMVar conn
       Raw.maybeSyslog lopts Warning "Connection re-established"
       void $ forkIO $ do
-        (newSession, _) <- startDMCCSession ostream (Just oldId)
+        (newSession, _) <- startDMCCSession (Just oldId)
         atomically $ putTMVar sess newSession
 
   -- Read DMCC responses from socket
@@ -314,13 +312,9 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
 
   -- Keep the session alive
   pingThread <- forkIO $ forever $ do
-    -- Do not send a keep-alive message if I/O is unavailable or the
-    -- session is not ready yet.
-    (ostream, (sid, duration)) <- atomically $ do
-      (_, ostream, _) <- readTMVar conn
-      s <- readTMVar sess
-      return (ostream, s)
-    sendRequestAsyncRaw lopts ostream reconnect invoke Nothing $
+    -- Do not send a keep-alive message if the session is not ready
+    (sid, duration) <- atomically $ readTMVar sess
+    sendRequestAsyncRaw lopts conn reconnect invoke Nothing $
       Rq.ResetApplicationSessionTimer
       { sessionId = sid
       , requestedSessionDuration = duration
@@ -341,9 +335,8 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
           sopts
 
   -- Start the session
-  c@(_, ostream, _) <- connect
-  atomically $ putTMVar conn c
-  (newSession, actualProtocolVersion) <- startDMCCSession ostream Nothing
+  connect >>= atomically . putTMVar conn
+  (newSession, actualProtocolVersion) <- startDMCCSession Nothing
   atomically $ putTMVar sess newSession
 
   wh <- case whUrl of
@@ -388,7 +381,8 @@ stopSession as@(Session{..}) = do
 -- session restart, Nothing is returned in this case.
 --
 -- Write errors are made explicit here because 'sendRequestSync' is
--- called from multiple locations.
+-- called from multiple locations, making it tedious to install the
+-- reconnection handler everywhere.
 sendRequestSync :: DMCCHandle
                 -> Maybe AgentId
                 -- ^ Push erroneous responses to this agent's event
@@ -398,20 +392,19 @@ sendRequestSync :: DMCCHandle
                 -- AgentHandle).
                 -> Request
                 -> IO (Maybe Response)
-sendRequestSync (DMCCHandle{..}) aid rq = do
-  (_, ostream, _) <- atomically $ readTMVar dmccSession >> readTMVar connection
+sendRequestSync (DMCCHandle{..}) aid rq =
   sendRequestSyncRaw
-    loggingOptions
-    ostream
-    reconnect
-    invokeId
-    syncResponses
-    ((agentRequests, ) <$> aid)
-    rq
+  loggingOptions
+  connection
+  reconnect
+  invokeId
+  syncResponses
+  ((agentRequests, ) <$> aid)
+  rq
 
 
 sendRequestSyncRaw :: Maybe LoggingOptions
-                   -> OutputStream ByteString
+                   -> TMVar ConnectionData
                    -> IO ()
                    -- ^ Reconnection action.
                    -> TVar Int
@@ -419,8 +412,8 @@ sendRequestSyncRaw :: Maybe LoggingOptions
                    -> Maybe (TVar (IntMap.IntMap AgentId), AgentId)
                    -> Request
                    -> IO (Maybe Response)
-sendRequestSyncRaw lopts ostream re invoke srs ar rq = do
-  (ix, var) <- atomically $ do
+sendRequestSyncRaw lopts connection re invoke srs ar rq = do
+  (ix, var, c@(_, ostream, _)) <- atomically $ do
     modifyTVar' invoke ((`mod` 9999) . (+1))
     ix <- readTVar invoke
     var <- newEmptyTMVar
@@ -428,11 +421,13 @@ sendRequestSyncRaw lopts ostream re invoke srs ar rq = do
     case ar of
       Just (ars, a) -> modifyTVar' ars (IntMap.insert ix a)
       Nothing -> return ()
-    return (ix, var)
+    c <- takeTMVar connection
+    return (ix, var, c)
   let
     srHandler e = do
       Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
       atomically $ do
+        putTMVar connection c
         putTMVar var Nothing
         modifyTVar' srs $ IntMap.delete ix
         case ar of
@@ -440,50 +435,56 @@ sendRequestSyncRaw lopts ostream re invoke srs ar rq = do
           Nothing -> return ()
       re
   handleNetwork srHandler $ Raw.sendRequest lopts ostream ix rq
+  -- Release the connection at once and wait for response in a
+  -- separate transaction.
+  atomically $ putTMVar connection c
   atomically $ takeTMVar var
 
 
+-- | Like 'sendRequestAsync', but do not wait for a result.
 sendRequestAsync :: DMCCHandle
                  -> Maybe AgentId
                  -- ^ Push erroneous responses to this agent's event
                  -- processor.
                  -> Request
                  -> IO ()
-sendRequestAsync (DMCCHandle{..}) aid rq = do
-  (_, ostream, _) <- atomically $ readTMVar dmccSession >> readTMVar connection
+sendRequestAsync (DMCCHandle{..}) aid rq =
   sendRequestAsyncRaw
-    loggingOptions
-    ostream
-    reconnect
-    invokeId
-    ((agentRequests, ) <$> aid)
-    rq
+  loggingOptions
+  connection
+  reconnect
+  invokeId
+  ((agentRequests, ) <$> aid)
+  rq
 
 
 sendRequestAsyncRaw :: Maybe LoggingOptions
-                    -> OutputStream ByteString
+                    -> TMVar ConnectionData
                     -> IO ()
                     -> TVar Int
                     -> Maybe (TVar (IntMap.IntMap AgentId), AgentId)
                     -> Request
                     -> IO ()
-sendRequestAsyncRaw lopts ostream re invoke ar rq = do
-  ix <- atomically $ do
+sendRequestAsyncRaw lopts connection re invoke ar rq = do
+  (ix, c@(_, ostream, _)) <- atomically $ do
     modifyTVar' invoke ((`mod` 9999) . (+1))
-    ix' <- readTVar invoke
+    ix <- readTVar invoke
     case ar of
-      Just (ars, a) -> modifyTVar' ars (IntMap.insert ix' a)
+      Just (ars, a) -> modifyTVar' ars (IntMap.insert ix a)
       Nothing -> return ()
-    return ix'
+    c <- takeTMVar connection
+    return (ix, c)
   let
     srHandler e = do
       Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
-      atomically $
+      atomically $ do
+        putTMVar connection c
         case ar of
           Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
           Nothing -> return ()
       re
   handleNetwork srHandler $ Raw.sendRequest lopts ostream ix rq
+  atomically $ putTMVar connection c
 
 
 -- | Handle network-related errors we know of.
