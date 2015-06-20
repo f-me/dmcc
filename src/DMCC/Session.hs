@@ -271,7 +271,14 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
       -- We do not change the protocol version during session recovery
       connect >>= atomically . putTMVar conn
       Raw.maybeSyslog lopts Warning "Connection re-established"
-      void $ forkIO $ do
+      let
+        shdl (Right ()) = return ()
+        shdl (Left e) = throwIO e
+      -- Fork new thread for DMCC session initialization. This is
+      -- because 'reconnect' needs to return for response reader
+      -- thread to start working again (which is required for DMCC
+      -- session start).
+      void $ flip forkFinally shdl $ do
         (newSession, _) <- startDMCCSession (Just oldId)
         atomically $ putTMVar sess newSession
 
