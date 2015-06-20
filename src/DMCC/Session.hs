@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DoAndIfThenElse #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
@@ -43,7 +44,10 @@ import           Data.Text (Text, unpack)
 import           Data.Typeable
 
 import           System.IO
-import           System.IO.Streams (InputStream, OutputStream, write)
+import           System.IO.Streams (InputStream,
+                                    OutputStream,
+                                    ReadTooShortException,
+                                    write)
 import           System.IO.Streams.Handle
 import qualified System.IO.Streams.SSL as SSLStreams
 import           System.Posix.Syslog
@@ -68,9 +72,12 @@ data ConnectionType = Plain
                     | TLS { caDir :: Maybe FilePath }
 
 
+type ConnectionData = (InputStream ByteString, OutputStream ByteString, IO ())
+
+
 -- | Low-level DMCC API plumbing.
 data DMCCHandle = DMCCHandle
-  { connection :: TMVar (InputStream ByteString, OutputStream ByteString, IO ())
+  { connection :: TMVar ConnectionData
   -- ^ AVAYA server socket streams and connection cleanup action.
   , dmccSession :: TMVar (Text, Int)
   -- ^ DMCC session ID and duration.
@@ -157,19 +164,20 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
 
   let
     -- Connect to the server, produce I/O streams and a cleanup action
-    connect :: IO (InputStream ByteString, OutputStream ByteString, IO ())
+    connect :: IO ConnectionData
     connect = connect1 (connectionRetryAttempts sopts)
       where
+        connectExHandler :: (Exception e, Show e) =>
+                            Int -> e -> IO ConnectionData
+        connectExHandler attempts e = do
+          Raw.maybeSyslog lopts Critical ("Connection failed: " ++ show e)
+          if attempts > 0
+          then do
+            threadDelay $ (connectionRetryDelay sopts) * 1000000
+            connect1 (attempts - 1)
+          else throwIO e
         connect1 attempts =
-          handle
-          -- Attempt to connect several times
-          (\(e :: SomeException) -> do
-               Raw.maybeSyslog lopts Critical ("Connection failed: " ++ show e)
-               if attempts > 0
-               then do
-                 threadDelay $ (connectionRetryDelay sopts) * 1000000
-                 connect1 (attempts - 1)
-               else throwIO e) $
+          handleNetwork (connectExHandler attempts) $
           case ct of
             Plain -> do
               h <- connectTo host (PortNumber $ fromIntegral port)
@@ -246,7 +254,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
         mapM_ (`putTMVar` Nothing) $ IntMap.elems srs
         writeTVar syncResponses IntMap.empty
       handle
-        (\(e :: SomeException) ->
+        (\(e :: IOException) ->
            Raw.maybeSyslog lopts Error $
            "Failed to close old connection: " ++ show e)
         cl
@@ -260,13 +268,13 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
 
   -- Read DMCC responses from socket
   msgChan <- newTChanIO
-  let exHandler e =
+  let readExHandler e =
         Raw.maybeSyslog lopts Critical ("Read error: " ++ show e) >>
         reconnect
   readThread <-
     forkIO $ forever $ do
       (istream, _, _) <- atomically $ readTMVar conn
-      handle (\(e :: SomeException) -> exHandler e) $
+      handleNetwork readExHandler $
         Raw.readResponse lopts istream >>=
         atomically . writeTChan msgChan . first DMCCRsp
 
@@ -421,16 +429,17 @@ sendRequestSyncRaw lopts ostream re invoke srs ar rq = do
       Just (ars, a) -> modifyTVar' ars (IntMap.insert ix a)
       Nothing -> return ()
     return (ix, var)
-  handle (\(e :: SomeException) -> do
-              Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
-              atomically $ do
-                putTMVar var Nothing
-                modifyTVar' srs $ IntMap.delete ix
-                case ar of
-                  Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
-                  Nothing -> return ()
-              re) $
-    Raw.sendRequest lopts ostream ix rq
+  let
+    srHandler e = do
+      Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
+      atomically $ do
+        putTMVar var Nothing
+        modifyTVar' srs $ IntMap.delete ix
+        case ar of
+          Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
+          Nothing -> return ()
+      re
+  handleNetwork srHandler $ Raw.sendRequest lopts ostream ix rq
   atomically $ takeTMVar var
 
 
@@ -466,10 +475,25 @@ sendRequestAsyncRaw lopts ostream re invoke ar rq = do
       Just (ars, a) -> modifyTVar' ars (IntMap.insert ix' a)
       Nothing -> return ()
     return ix'
-  handle (\(e :: SomeException) -> do
-              Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
-              atomically $ case ar of
-                             Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
-                             Nothing -> return ()
-              re) $
-    Raw.sendRequest lopts ostream ix rq
+  let
+    srHandler e = do
+      Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
+      atomically $
+        case ar of
+          Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
+          Nothing -> return ()
+      re
+  handleNetwork srHandler $ Raw.sendRequest lopts ostream ix rq
+
+
+-- | Handle network-related errors we know of.
+handleNetwork :: (forall e. (Exception e, Show e) => (e -> IO a))
+              -- ^ Exception handler.
+              -> IO a
+              -> IO a
+handleNetwork handler action =
+  action `catches`
+  [ Handler (\(e :: ReadTooShortException) -> handler e)
+  , Handler (\(e :: IOException) -> handler e)
+  , Handler (\(e :: SSL.ConnectionAbruptlyTerminated) -> handler e)
+  ]
