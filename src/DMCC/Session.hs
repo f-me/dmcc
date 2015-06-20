@@ -363,7 +363,7 @@ stopSession as@(Session{..}) = do
   ags <- readTVarIO agents
   (s, _) <- atomically $ readTMVar $ dmccSession dmccHandle
   mapM_ releaseAgent $
-    zipWith (\aid as -> AgentHandle (aid, as)) (Map.keys ags) (repeat as)
+    map (\aid -> AgentHandle (aid, as)) (Map.keys ags)
 
   sendRequestAsync dmccHandle Nothing $
     Rq.StopApplicationSession{sessionID = s}
