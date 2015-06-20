@@ -395,8 +395,13 @@ stopSession as@(Session{..}) = do
 
 
 -- | Send a request and block until the response arrives or a write
--- exception occurs. Write exceptions cause a reconnection and a
--- session restart, Nothing is returned in this case.
+-- exception occurs. No request is sent until a connection and an
+-- application session become available. Write exceptions cause a
+-- reconnection and a session restart, Nothing is returned in this
+-- case.
+--
+-- This must not be used to for session setup as this requires an
+-- active DMCC application session!
 --
 -- Write errors are made explicit here because 'sendRequestSync' is
 -- called from multiple locations, making it tedious to install the
@@ -410,19 +415,21 @@ sendRequestSync :: DMCCHandle
                 -- AgentHandle).
                 -> Request
                 -> IO (Maybe Response)
-sendRequestSync (DMCCHandle{..}) aid rq =
+sendRequestSync (DMCCHandle{..}) aid rq = do
+  void $ atomically $ readTMVar dmccSession
   sendRequestSyncRaw
-  loggingOptions
-  connection
-  reconnect
-  invokeId
-  syncResponses
-  ((agentRequests, ) <$> aid)
-  rq
+    loggingOptions
+    connection
+    reconnect
+    invokeId
+    syncResponses
+    ((agentRequests, ) <$> aid)
+    rq
 
 
 sendRequestSyncRaw :: Maybe LoggingOptions
                    -> TMVar ConnectionData
+                   -- ^ Block until this connection becomes available.
                    -> IO ()
                    -- ^ Reconnection action.
                    -> TVar Int
@@ -466,18 +473,20 @@ sendRequestAsync :: DMCCHandle
                  -- processor.
                  -> Request
                  -> IO ()
-sendRequestAsync (DMCCHandle{..}) aid rq =
+sendRequestAsync (DMCCHandle{..}) aid rq = do
+  void $ atomically $ readTMVar dmccSession
   sendRequestAsyncRaw
-  loggingOptions
-  connection
-  reconnect
-  invokeId
-  ((agentRequests, ) <$> aid)
-  rq
+    loggingOptions
+    connection
+    reconnect
+    invokeId
+    ((agentRequests, ) <$> aid)
+    rq
 
 
 sendRequestAsyncRaw :: Maybe LoggingOptions
                     -> TMVar ConnectionData
+                   -- ^ Block until this connection becomes available.
                     -> IO ()
                     -> TVar Int
                     -> Maybe (TVar (IntMap.IntMap AgentId), AgentId)
