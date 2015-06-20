@@ -515,4 +515,5 @@ handleNetwork handler action =
   [ Handler (\(e :: ReadTooShortException) -> handler e)
   , Handler (\(e :: IOException) -> handler e)
   , Handler (\(e :: SSL.ConnectionAbruptlyTerminated) -> handler e)
+  , Handler (\(e :: SSL.ProtocolError) -> handler e)
   ]
