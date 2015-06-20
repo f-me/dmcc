@@ -38,9 +38,10 @@ import           Data.Functor
 import           Data.ByteString (ByteString)
 import           Data.List
 import qualified Data.Map.Strict as Map
+import           Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.IntMap.Strict as IntMap
-import           Data.Text (Text, unpack)
+import           Data.Text as T (Text, empty, unpack)
 import           Data.Typeable
 
 import           System.IO
@@ -219,20 +220,30 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
           , userName = user
           , password = pass
           , sessionCleanupDelay = sessionDuration sopts
-          , oldSessionID = sid
+          , sessionID = fromMaybe T.empty sid
           , requestedSessionDuration = sessionDuration sopts
           }
       startRsp <- startReq old
       case (startRsp, old) of
         (Just Rs.StartApplicationSessionPosResponse{..}, _) ->
           return ((sessionID, actualSessionDuration), actualProtocolVersion)
-        (Just Rs.StartApplicationSessionNegResponse{..}, Just _) -> do
+        (Just Rs.StartApplicationSessionNegResponse{..}, Just oldID) -> do
           -- The old session has expired, start from scratch
-          --
-          -- TODO Transfer monitor objects
           startRsp' <- startReq Nothing
           case startRsp' of
-            Just Rs.StartApplicationSessionPosResponse{..} ->
+            Just Rs.StartApplicationSessionPosResponse{..} -> do
+              -- Transfer MonitorObjects from old session
+              sendRequestAsyncRaw
+                lopts
+                conn
+                reconnect
+                invoke
+                Nothing $
+                Rq.TransferMonitorObjects
+                { fromSessionID = oldID
+                , toSessionID = sessionID
+                , acceptedProtocol = actualProtocolVersion
+                }
               return ((sessionID, actualSessionDuration), actualProtocolVersion)
             _ -> throwIO ApplicationSessionFailed
         _ -> throwIO ApplicationSessionFailed

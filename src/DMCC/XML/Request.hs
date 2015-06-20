@@ -29,7 +29,7 @@ data Request
     , userName :: Text
     , password :: Text
     , sessionCleanupDelay :: Int
-    , oldSessionID :: Maybe Text
+    , sessionID :: Text
     , requestedSessionDuration :: Int
     }
   | StopApplicationSession
@@ -100,6 +100,11 @@ data Request
   | MonitorStop
     { acceptedProtocol :: Text
     , monitorCrossRefID :: Text
+    }
+  | TransferMonitorObjects
+    { fromSessionID :: Text
+    , toSessionID :: Text
+    , acceptedProtocol :: Text
     }
   | GetAgentState
     { device :: DeviceId
@@ -200,7 +205,7 @@ toXml rq = renderLBS def $ case rq of
             <acx:userName>#{userName}
             <acx:password>#{password}
             <acx:sessionCleanupDelay>#{T.pack $ show sessionCleanupDelay}
-            <acx:sessionID>#{fromMaybe T.empty oldSessionID}
+            <acx:sessionID>#{sessionID}
       <requestedProtocolVersions>
         <protocolVersion>#{getProtocolString requestedProtocolVersion}
       <requestedSessionDuration>#{T.pack $ show requestedSessionDuration}
@@ -345,6 +350,13 @@ toXml rq = renderLBS def $ case rq of
     doc "MonitorStop" acceptedProtocol
     [xml|
       <monitorCrossRefID>#{monitorCrossRefID}
+    |]
+
+  TransferMonitorObjects{..} ->
+    doc "TransferMonitorObjects" acceptedProtocol
+    [xml|
+      <fromSessionID>#{fromSessionID}
+      <toSessionID>#{toSessionID}
     |]
 
   GetAgentState{..} ->
