@@ -35,6 +35,7 @@ data Response
     , actualProtocolVersion :: Text
     , actualSessionDuration :: Int
     }
+  | StartApplicationSessionNegResponse
   | GetDeviceIdResponse
     { device :: DeviceId
     }
@@ -128,6 +129,9 @@ fromXml xml
           , actualProtocolVersion = text cur "actualProtocolVersion"
           , actualSessionDuration = decimal cur "actualSessionDuration"
           }
+
+        "StartApplicationSessionNegResponse" ->
+          StartApplicationSessionNegResponse
 
         "GetDeviceIdResponse" ->
           GetDeviceIdResponse

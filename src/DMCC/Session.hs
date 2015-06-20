@@ -1,5 +1,7 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 
 {-|
@@ -15,6 +17,8 @@ module DMCC.Session
   , stopSession
   , defaultLoggingOptions
   , defaultSessionOptions
+
+  , DMCCError(..)
 
   , DMCCHandle(..)
   , sendRequestSync
@@ -36,6 +40,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.IntMap.Strict as IntMap
 import           Data.Text (Text, unpack)
+import           Data.Typeable
 
 import           System.IO
 import           System.IO.Streams (InputStream, OutputStream, write)
@@ -109,6 +114,13 @@ data LoopEvent
   | Timeout
   | ReadError
   deriving Show
+
+
+data DMCCError = ApplicationSessionFailed
+                 deriving (Show, Typeable)
+
+
+instance Exception DMCCError
 
 
 defaultLoggingOptions :: LoggingOptions
@@ -185,25 +197,38 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
                      -- when this is given).
                      -> IO ((Text, Int), Text)
     startDMCCSession ostream old = do
-      Just Rs.StartApplicationSessionPosResponse{..} <-
-        sendRequestSyncRaw
-        lopts
-        ostream
-        reconnect
-        invoke
-        syncResponses
-        Nothing $
-        Rq.StartApplicationSession
-        { applicationId = ""
-        , requestedProtocolVersion = Rq.DMCC_6_2
-        , userName = user
-        , password = pass
-        , sessionCleanupDelay = sessionDuration sopts
-        , oldSessionID = old
-        , requestedSessionDuration = sessionDuration sopts
-        }
-
-      return ((sessionID, actualSessionDuration), actualProtocolVersion)
+      let
+        startReq sid =
+          sendRequestSyncRaw
+          lopts
+          ostream
+          reconnect
+          invoke
+          syncResponses
+          Nothing $
+          Rq.StartApplicationSession
+          { applicationId = ""
+          , requestedProtocolVersion = Rq.DMCC_6_2
+          , userName = user
+          , password = pass
+          , sessionCleanupDelay = sessionDuration sopts
+          , oldSessionID = sid
+          , requestedSessionDuration = sessionDuration sopts
+          }
+      startRsp <- startReq old
+      case (startRsp, old) of
+        (Just Rs.StartApplicationSessionPosResponse{..}, _) ->
+          return ((sessionID, actualSessionDuration), actualProtocolVersion)
+        (Just Rs.StartApplicationSessionNegResponse{..}, Just _) -> do
+          -- The old session has expired, start from scratch
+          --
+          -- TODO Transfer monitor objects
+          startRsp' <- startReq Nothing
+          case startRsp' of
+            Just Rs.StartApplicationSessionPosResponse{..} ->
+              return ((sessionID, actualSessionDuration), actualProtocolVersion)
+            _ -> throwIO ApplicationSessionFailed
+        _ -> throwIO ApplicationSessionFailed
 
     -- Restart I/O and DMCC session. This routine returns when new I/O
     -- streams become available (starting DMCC session requires
