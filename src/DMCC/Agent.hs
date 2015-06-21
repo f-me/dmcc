@@ -378,11 +378,14 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
       simpleRequest2 Rq.TransferCall activeCall heldCall
     EndCall callId -> simpleRequest Rq.ClearConnection callId
     -- Synchronous to avoid missed digits if actions queue up
-    SendDigits{..}  ->
+    SendDigits{..} ->
       void $
       sendRequestSync (dmccHandle as) (Just aid) $
       Rq.GenerateDigits digits device callId (protocolVersion as)
-    SetState newState   -> simpleRequest Rq.SetAgentState newState
+    SetState newState -> do
+      cs <- atomically $ readTVar snapshot
+      when (fst (_state cs) /= Just Busy) $
+        simpleRequest Rq.SetAgentState newState
 
 
 -- | Process DMCC API events/errors for this agent to change its snapshot
