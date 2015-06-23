@@ -206,14 +206,17 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
                      -> IO ((Text, Int), Text)
     startDMCCSession old = do
       let
-        startReq sid =
+        sendReq req =
           sendRequestSyncRaw
           lopts
           conn
           reconnect
           invoke
           syncResponses
-          Nothing $
+          Nothing
+          req
+        startReq sid =
+          sendReq $
           Rq.StartApplicationSession
           { applicationId = ""
           , requestedProtocolVersion = Rq.DMCC_6_2
@@ -223,15 +226,25 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
           , sessionID = fromMaybe T.empty sid
           , requestedSessionDuration = sessionDuration sopts
           }
+        -- Start a session monitor to enable TransferMonitorObjects
+        -- feature
+        sessionMonitorReq proto =
+          sendReq $
+          Rq.MonitorStart
+          { acceptedProtocol = proto
+          , monitorRq = Rq.Session
+          }
       startRsp <- startReq old
       case (startRsp, old) of
-        (Just Rs.StartApplicationSessionPosResponse{..}, _) ->
+        (Just Rs.StartApplicationSessionPosResponse{..}, _) -> do
+          sessionMonitorReq actualProtocolVersion
           return ((sessionID, actualSessionDuration), actualProtocolVersion)
         (Just Rs.StartApplicationSessionNegResponse{..}, Just oldID) -> do
           -- The old session has expired, start from scratch
           startRsp' <- startReq Nothing
           case startRsp' of
             Just Rs.StartApplicationSessionPosResponse{..} -> do
+              sessionMonitorReq actualProtocolVersion
               -- Transfer MonitorObjects from old session
               sendRequestAsyncRaw
                 lopts

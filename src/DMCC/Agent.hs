@@ -239,8 +239,8 @@ controlAgent switch ext as = do
         msrRsp <-
           sendRequestSync (dmccHandle as) Nothing $
           Rq.MonitorStart
-          { deviceObject = device
-          , acceptedProtocol = protocolVersion as
+          { acceptedProtocol = protocolVersion as
+          , monitorRq = Rq.Device device
           }
 
         monitorCrossRefID <-

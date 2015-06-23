@@ -95,7 +95,7 @@ data Request
     }
   | MonitorStart
     { acceptedProtocol :: Text
-    , deviceObject :: DeviceId
+    , monitorRq :: MonitorRequest
     }
   | MonitorStop
     { acceptedProtocol :: Text
@@ -121,6 +121,11 @@ data Request
     , acceptedProtocol :: Text
     }
   deriving Show
+
+
+data MonitorRequest = Device {deviceObject :: DeviceId}
+                    | Session
+                    deriving Show
 
 
 data ProtocolVersion = DMCC_6_1 | DMCC_6_2 | DMCC_6_3
@@ -318,33 +323,50 @@ toXml rq = renderLBS def $ case rq of
     |]
 
   MonitorStart{..} ->
-    doc "MonitorStart" acceptedProtocol
-    [xml|
-      <monitorObject>
-        <deviceObject typeOfNumber="other" mediaClass="notKnown">
-          #{toText deviceObject}
-      <requestedMonitorFilter>
-        <callcontrol>
-          <connectionCleared>true
-          <conferenced>true
-          <delivered>true
-          <diverted>true
-          <established>true
-          <failed>true
-          <held>true
-          <originated>true
-          <retrieved>true
-          <transferred>true
-        <logicalDeviceFeature>
-          <agentReady>true
-          <agentWorkingAfterCall>false
-          <agentNotReady>true
-      <extensions>
-        <privateData>
-          <private>
-            <AvayaEvents>
-              <invertFilter>true
-    |]
+    case monitorRq of
+      Device{..} ->
+        doc "MonitorStart" acceptedProtocol
+        [xml|
+          <monitorObject>
+            <deviceObject typeOfNumber="other" mediaClass="notKnown">
+              #{toText deviceObject}
+          <requestedMonitorFilter>
+            <callcontrol>
+              <connectionCleared>true
+              <conferenced>true
+              <delivered>true
+              <diverted>true
+              <established>true
+              <failed>true
+              <held>true
+              <originated>true
+              <retrieved>true
+              <transferred>true
+            <logicalDeviceFeature>
+              <agentReady>true
+              <agentWorkingAfterCall>false
+              <agentNotReady>true
+          <extensions>
+            <privateData>
+              <private>
+                <AvayaEvents>
+                  <invertFilter>true
+        |]
+      Session ->
+        doc "MonitorStart" acceptedProtocol
+        [xml|
+          <monitorObject>
+            <deviceObject mediaClass="notKnown">
+          <extensions>
+            <privateData>
+              <private>
+                <AvayaEvents>
+                  <invertFilter>true
+                  <deviceServices>
+                    <getDeviceIdList>true
+                    <getMonitorList>true
+                    <transferMonitorObjects>true
+        |]
 
   MonitorStop{..} ->
     doc "MonitorStop" acceptedProtocol
