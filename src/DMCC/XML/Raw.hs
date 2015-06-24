@@ -15,7 +15,6 @@ DMCC header format:
 module DMCC.XML.Raw where
 
 
-import           Control.Exception
 import           Data.Functor ((<$>))
 import           Data.Binary.Get
 import           Data.Binary.Put

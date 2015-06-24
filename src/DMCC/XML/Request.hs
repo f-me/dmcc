@@ -12,7 +12,6 @@ where
 import qualified Data.ByteString.Lazy as L
 import           Data.CaseInsensitive
 import qualified Data.Map as Map
-import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as T
 
