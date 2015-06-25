@@ -611,6 +611,9 @@ releaseAgent ah@(AgentHandle (aid, as)) = do
                 releaseAgentLock ah >>
                 (throwIO (e :: IOException))) $
       do
+        killThread (actionThread ag)
+        killThread (rspThread ag)
+        killThread (stateThread ag)
         sendRequestSync (dmccHandle as) (Just aid) $
           Rq.MonitorStop
           { acceptedProtocol = protocolVersion as
@@ -618,9 +621,6 @@ releaseAgent ah@(AgentHandle (aid, as)) = do
           }
         sendRequestSync (dmccHandle as) (Just aid) $
           Rq.ReleaseDeviceId{device = deviceId ag}
-        killThread (actionThread ag)
-        killThread (rspThread ag)
-        killThread (stateThread ag)
         atomically $ modifyTVar' (agents as) (Map.delete aid)
         releaseAgentLock ah
         return ()
