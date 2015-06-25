@@ -133,12 +133,15 @@ data Agent = Agent
     , stateThread :: ThreadId
     -- ^ Agent state poller.
     , eventChan :: TChan AgentEvent
+    , keepAfterCall :: TVar Bool
+    -- ^ If True, the agent will be force switched to AfterCall state
+    -- whenever it goes Ready next time.
     , snapshot :: TVar AgentSnapshot
     }
 
 
 instance Show Agent where
-  show (Agent (DeviceId d) m _ _ _ _ _ _ _) =
+  show (Agent (DeviceId d) m _ _ _ _ _ _ _ _) =
     "Agent{deviceId=" ++ unpack (original d) ++
     ", monitorId=" ++ unpack m ++
     "}"
@@ -259,12 +262,13 @@ controlAgent switch ext as = do
 
         -- Setup action and event processing for this agent
         snapshot <- newTVarIO $ AgentSnapshot Map.empty (Nothing, "")
+        keeper <- newTVarIO False
 
         actionChan <- newTChanIO
         actionThread <-
           forkIO $ forever $
           (atomically $ readTChan actionChan) >>=
-          processAgentAction aid device snapshot as
+          processAgentAction aid device keeper snapshot as
 
         eventChan <- newBroadcastTChanIO
 
@@ -304,6 +308,17 @@ controlAgent switch ext as = do
               }
             case gsRsp of
               Just (Rs.GetAgentStateResponse{..}) -> do
+                k <- atomically $ readTVar keeper
+                when (k && agentState `notElem`
+                      [Just (Settable AfterCall), Just Busy]) $ do
+                  sendRequestSync (dmccHandle as) (Just aid) $
+                    Rq.SetAgentState
+                    { device = device
+                    , requestedAgentState = AfterCall
+                    , acceptedProtocol = protocolVersion as
+                    }
+                  return ()
+
                 ns <- atomically $ do
                   sn <- readTVar snapshot
                   case (_state sn /= (agentState, reasonCode)) of
@@ -331,6 +346,7 @@ controlAgent switch ext as = do
                  rspThread
                  stateThread
                  eventChan
+                 keeper
                  snapshot
         atomically $ modifyTVar' (agents as) (Map.insert aid ag)
         releaseAgentLock ah
@@ -342,11 +358,12 @@ controlAgent switch ext as = do
 -- TODO Allow agents to control only own calls.
 processAgentAction :: AgentId
                    -> DeviceId
+                   -> TVar Bool
                    -> TVar AgentSnapshot
                    -> Session
                    -> Action
                    -> IO ()
-processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
+processAgentAction aid@(AgentId (switch, _)) device keeper snapshot as action =
   let
     arq = sendRequestAsync (dmccHandle as) (Just aid)
     simpleRequest rq arg =
@@ -388,7 +405,13 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
       sendRequestSync (dmccHandle as) (Just aid) $
       Rq.GenerateDigits digits device callId (protocolVersion as)
     SetState newState -> do
-      cs <- atomically $ readTVar snapshot
+      cs <- atomically $ do
+        -- Maintain AfterCall state until next state change
+        let newKeeper = if newState == AfterCall
+                        then True
+                        else False
+        modifyTVar' keeper (const newKeeper)
+        readTVar snapshot
       when (fst (_state cs) /= Just Busy) $
         simpleRequest Rq.SetAgentState newState
 
