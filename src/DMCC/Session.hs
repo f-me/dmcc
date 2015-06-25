@@ -60,6 +60,7 @@ import           OpenSSL
 import qualified OpenSSL.Session as SSL
 
 import           DMCC.Types
+import           DMCC.Util
 import           DMCC.XML.Request (Request)
 import qualified DMCC.XML.Request as Rq
 import           DMCC.XML.Response (Response)
@@ -171,7 +172,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
         connectExHandler :: (Exception e, Show e) =>
                             Int -> e -> IO ConnectionData
         connectExHandler attempts e = do
-          Raw.maybeSyslog lopts Critical ("Connection failed: " ++ show e)
+          maybeSyslog lopts Critical ("Connection failed: " ++ show e)
           if attempts > 0
           then do
             threadDelay $ (connectionRetryDelay sopts) * 1000000
@@ -265,7 +266,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
     -- streams become available (starting DMCC session requires
     -- response reader thread to be functional).
     reconnect = do
-      Raw.maybeSyslog lopts Warning "Attempting reconnection"
+      maybeSyslog lopts Warning "Attempting reconnection"
       -- Only one reconnection at a time
       (oldId, cl) <- atomically $ do
         (oldId, _) <- takeTMVar sess
@@ -278,12 +279,12 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
         writeTVar syncResponses IntMap.empty
       handle
         (\(e :: IOException) ->
-           Raw.maybeSyslog lopts Error $
+           maybeSyslog lopts Error $
            "Failed to close old connection: " ++ show e)
         cl
       -- We do not change the protocol version during session recovery
       connect >>= atomically . putTMVar conn
-      Raw.maybeSyslog lopts Warning "Connection re-established"
+      maybeSyslog lopts Warning "Connection re-established"
       let
         shdl (Right ()) = return ()
         shdl (Left e) = throwIO e
@@ -298,7 +299,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
   -- Read DMCC responses from socket
   msgChan <- newTChanIO
   let readExHandler e =
-        Raw.maybeSyslog lopts Critical ("Read error: " ++ show e) >>
+        maybeSyslog lopts Critical ("Read error: " ++ show e) >>
         reconnect
   readThread <-
     forkIO $ forever $ do
@@ -463,7 +464,7 @@ sendRequestSyncRaw lopts connection re invoke srs ar rq = do
     return (ix, var, c)
   let
     srHandler e = do
-      Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
+      maybeSyslog lopts Critical ("Write error: " ++ show e)
       atomically $ do
         putTMVar connection c
         putTMVar var Nothing
@@ -516,7 +517,7 @@ sendRequestAsyncRaw lopts connection re invoke ar rq = do
     return (ix, c)
   let
     srHandler e = do
-      Raw.maybeSyslog lopts Critical ("Write error: " ++ show e)
+      maybeSyslog lopts Critical ("Write error: " ++ show e)
       atomically $ do
         putTMVar connection c
         case ar of

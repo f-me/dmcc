@@ -29,14 +29,9 @@ import           System.Posix.Syslog
 import           Text.Printf
 
 import           DMCC.Types
+import           DMCC.Util
 import           DMCC.XML.Request
 import           DMCC.XML.Response
-
-
-maybeSyslog :: Maybe LoggingOptions -> Priority -> String -> IO ()
-maybeSyslog Nothing _ _ = return ()
-maybeSyslog (Just LoggingOptions{..}) pri msg =
-  withSyslog syslogIdent [PID] USER (logUpTo Debug) $ syslog pri msg
 
 
 -- FIXME: error

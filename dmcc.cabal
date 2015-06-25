@@ -54,6 +54,7 @@ Library
     DMCC.Agent
     DMCC.Session
     DMCC.Types
+    DMCC.Util
     DMCC.XML.Raw
     DMCC.XML.Request
     DMCC.XML.Response
