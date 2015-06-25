@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 {-|
@@ -32,8 +33,11 @@ import           Data.Time.Clock
 import qualified Network.HTTP.Client as HTTP
 import           Network.HTTP.Client (httpNoBody, method, requestBody)
 
+import qualified System.Posix.Syslog as Syslog
+
 import           DMCC.Session
 import           DMCC.Types
+import           DMCC.Util
 import qualified DMCC.XML.Request as Rq
 import qualified DMCC.XML.Response as Rs
 
@@ -201,6 +205,7 @@ controlAgent :: SwitchName
 controlAgent switch ext as = do
   let aid = AgentId (switch, ext)
       ah  = AgentHandle (aid, as)
+      lopts = loggingOptions $ dmccHandle as
   -- Check if agent already exists
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)
@@ -310,7 +315,7 @@ controlAgent switch ext as = do
                         return $ Just newSnapshot
                 case (ns, webHook as) of
                   (Just ns', Just connData) ->
-                    sendWH connData aid (StateChange ns')
+                    sendWH connData lopts aid (StateChange ns')
                   _ -> return ()
               -- Ignore state errors
               _ -> return ()
@@ -399,6 +404,7 @@ processAgentEvent :: AgentId
                   -> IO ()
 processAgentEvent aid device snapshot eventChan as rs = do
   let
+    lopts = loggingOptions $ dmccHandle as
     -- | Atomically modify one of the calls.
     callOperation :: CallId
                   -- ^ CallId to find in calls map
@@ -448,8 +454,10 @@ processAgentEvent aid device snapshot eventChan as rs = do
                 return s
       atomically $ writeTChan eventChan $ TelephonyEvent ev s
       case webHook as of
-        Just connData -> sendWH connData aid (TelephonyEvent ev updSnapshot')
-        _             -> return ()
+        Just connData ->
+          sendWH connData lopts aid (TelephonyEvent ev updSnapshot')
+        _ ->
+          return ()
 
 
     -- All other telephony events
@@ -535,7 +543,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
       -- Call webhook if necessary
       case (webHook as, report) of
         (Just connData, True) ->
-          sendWH connData aid (TelephonyEvent ev updSnapshot)
+          sendWH connData lopts aid (TelephonyEvent ev updSnapshot)
         _ -> return ()
     -- All other responses cannot arrive to an agent
     _ -> return ()
@@ -544,13 +552,19 @@ processAgentEvent aid device snapshot eventChan as rs = do
 -- | Send agent event data to a web hook endpoint, ignoring possible
 -- exceptions.
 sendWH :: (HTTP.Request, HTTP.Manager)
+       -> Maybe LoggingOptions
        -> AgentId
        -> AgentEvent
        -> IO ()
-sendWH (req, mgr) aid payload = do
+sendWH (req, mgr) lopts aid payload =
+  handle (\(e :: HTTP.HttpException) ->
+            maybeSyslog lopts Syslog.Error $
+            "Webhook error for agent " ++ show aid ++
+            ", event " ++ show payload ++ ": " ++
+            show e) $
   void $ httpNoBody req{requestBody = rqBody, method = "POST"} mgr
-    where
-      rqBody = HTTP.RequestBodyLBS $ A.encode $ WHEvent aid payload
+  where
+    rqBody = HTTP.RequestBodyLBS $ A.encode $ WHEvent aid payload
 
 
 -- | Forget about an agent, releasing his device and monitors.
