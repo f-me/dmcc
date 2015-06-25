@@ -410,7 +410,7 @@ processAgentAction aid@(AgentId (switch, _)) device keeper snapshot as action =
         let newKeeper = if newState == AfterCall
                         then True
                         else False
-        modifyTVar' keeper (const newKeeper)
+        writeTVar keeper newKeeper
         readTVar snapshot
       when (fst (_state cs) /= Just Busy) $
         simpleRequest Rq.SetAgentState newState
