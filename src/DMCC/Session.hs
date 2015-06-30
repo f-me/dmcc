@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE RankNTypes #-}
@@ -448,10 +449,14 @@ sendRequestSyncRaw :: Maybe LoggingOptions
                    -- ^ Reconnection action.
                    -> TVar Int
                    -> TVar (IntMap.IntMap (TMVar (Maybe Response)))
+                   -- ^ Synchronous response storage.
                    -> Maybe (TVar (IntMap.IntMap AgentId), AgentId)
+                   -- ^ Agent requests map and target agent id. When
+                   -- provided, CSTAErrorCode response will be
+                   -- directed to that agent's event processor.
                    -> Request
                    -> IO (Maybe Response)
-sendRequestSyncRaw lopts connection re invoke srs ar rq = do
+sendRequestSyncRaw lopts connection re invoke srs ar !rq = do
   (ix, var, c@(_, ostream, _)) <- atomically $ do
     modifyTVar' invoke ((`mod` 9999) . (+1))
     ix <- readTVar invoke
@@ -506,7 +511,7 @@ sendRequestAsyncRaw :: Maybe LoggingOptions
                     -> Maybe (TVar (IntMap.IntMap AgentId), AgentId)
                     -> Request
                     -> IO ()
-sendRequestAsyncRaw lopts connection re invoke ar rq = do
+sendRequestAsyncRaw lopts connection re invoke ar !rq = do
   (ix, c@(_, ostream, _)) <- atomically $ do
     modifyTVar' invoke ((`mod` 9999) . (+1))
     ix <- readTVar invoke
