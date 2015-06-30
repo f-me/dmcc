@@ -178,7 +178,7 @@ instance ToText Text where
 
 
 instance ToText Extension where
-  toText (Extension e) = T.pack $ show e
+  toText (Extension e) = e
 
 
 instance ToText SettableAgentState where

@@ -23,6 +23,7 @@ import qualified Data.Configurator as Cfg
 import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Text (Text)
+import qualified Data.Text as T
 
 import           Network.WebSockets
 
@@ -159,7 +160,7 @@ avayaApplication cfg as refs pending = do
       r <- atomically $ takeTMVar refs
       flip onException (atomically $ putTMVar refs r) $ do
         -- Assume that all agents are on the same switch
-        let ext' = Extension ext
+        let ext' = Extension $ T.pack $ show ext
         cRsp <- controlAgent (switchName cfg) ext' as
         ah <- case cRsp of
                 Right ah' -> return ah'
@@ -192,11 +193,14 @@ avayaApplication cfg as refs pending = do
           -- Agent actions loop
           forever $ do
             msg <- receiveData conn
-            case decode msg of
-              Just act -> do
+            case eitherDecode msg of
+              Right act -> do
                 syslog Debug $ "Action from " ++ label ++ ": " ++ show act
                 agentAction act ah
-              _ -> syslog Debug $
-                   "Unrecognized message from " ++ label ++ ": " ++
-                   BL.unpack msg
+              Left e -> do
+                syslog Debug $
+                  "Unrecognized message from " ++ label ++ ": " ++
+                  BL.unpack msg ++ " (" ++ e ++ ")"
+                sendTextData conn $ encode $
+                  Map.fromList [("errorText" :: String, e)]
     _ -> rejectRequest pending "Malformed extension number"

@@ -9,12 +9,12 @@ module DMCC.Types
 
 where
 
-import Data.Aeson
+import Control.Applicative
+import Data.Aeson as A
 import Data.Aeson.TH
 import Data.CaseInsensitive
 import Data.Data
-import Data.Functor
-import Data.Text
+import Data.Text as T
 import Data.Time.Clock
 
 
@@ -46,11 +46,20 @@ newtype UCID =
 
 
 newtype Extension =
-  Extension Int
-  deriving (Num, Enum, Real, Integral,
-            Eq, Ord, Show,
-            Data, Typeable,
-            FromJSON, ToJSON)
+  Extension Text
+  deriving (Eq, Ord, Show,
+            Data, Typeable, ToJSON)
+
+
+instance FromJSON Extension where
+  parseJSON (A.String s) =
+    if (T.length s > 30)
+    then fail "Maximum extension length is 30 digits"
+    else
+      if (\c -> c `elem` (['0'..'9'] ++ ['*', '#'])) `T.all` s
+      then return $ Extension s
+      else fail "Extension must contain the digits 0-9, * or #"
+  parseJSON _ = fail "Could not parse extension"
 
 
 newtype SwitchName =
