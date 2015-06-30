@@ -372,24 +372,31 @@ processAgentAction aid@(AgentId (switch, _)) device keeper snapshot as action =
       arq $ rq device arg1 arg2 (protocolVersion as)
   in
   case action of
+    -- We ignore bad requests here. All CSTA errors will be reported
+    -- to the agent.
     MakeCall toNumber -> do
-      Just rspDest <-
+      rspDest <-
         sendRequestSync (dmccHandle as) (Just aid) $
         Rq.GetThirdPartyDeviceId
         -- Assume destination switch is the same as agent's
         { switchName = switch
         , extension = toNumber
         }
-      Just mcr <- sendRequestSync (dmccHandle as) (Just aid) $
-        Rq.MakeCall
-        device
-        (Rs.device rspDest)
-        (protocolVersion as)
-      case mcr of
-        Rs.MakeCallResponse callId ucid -> do
-          now <- getCurrentTime
-          let call = Call Out ucid now [Rs.device rspDest] Nothing False False
-          atomically $ modifyTVar' snapshot (calls %~ Map.insert callId call)
+      case rspDest of
+        Just (Rs.GetThirdPartyDeviceIdResponse destDev) -> do
+          mcr <- sendRequestSync (dmccHandle as) (Just aid) $
+                 Rq.MakeCall
+                 device
+                 destDev
+                 (protocolVersion as)
+          case mcr of
+            Just (Rs.MakeCallResponse callId ucid) -> do
+              now <- getCurrentTime
+              let call =
+                    Call Out ucid now [destDev] Nothing False False
+              atomically $
+                modifyTVar' snapshot (calls %~ Map.insert callId call)
+            _ -> return ()
         _ -> return ()
     AnswerCall callId   -> simpleRequest Rq.AnswerCall callId
     HoldCall callId     -> simpleRequest Rq.HoldCall callId
@@ -445,6 +452,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
           writeTChan eventChan $ TelephonyEventError err
   now <- getCurrentTime
   case rs of
+    -- Report all errors to the agent
     Rs.CSTAErrorCodeResponse err ->
       atomically $ writeTChan eventChan $ RequestError $ unpack err
 
