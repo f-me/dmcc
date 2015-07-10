@@ -77,7 +77,7 @@ Library
     hsyslog              == 2.0.*,
     http-client          >= 0.4 && < 0.5,
     io-streams           == 1.2.*,
-    lens                 >= 4.6 && < 4.8,
+    lens                 >= 4.6 && < 4.13,
     mtl                  >= 2.1 && < 2.3,
     network              >= 2.3 && < 2.7,
     openssl-streams      == 1.2.*,
