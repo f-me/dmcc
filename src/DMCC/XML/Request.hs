@@ -78,6 +78,12 @@ data Request
     , heldCall :: CallId
     , acceptedProtocol :: Text
     }
+  | SingleStepConferenceCall
+    { deviceId :: DeviceId
+    , activeCall :: CallId
+    , acceptedProtocol :: Text
+    , participationType :: ParticipationType
+    }
   | TransferCall
     { deviceId :: DeviceId
     , activeCall :: CallId
@@ -197,6 +203,11 @@ deriving instance ToText SwitchName
 deriving instance ToText CallId
 
 
+instance ToText ParticipationType where
+  toText Active = "active"
+  toText Silent = "silent"
+
+
 toXml :: Request -> L.ByteString
 toXml rq = renderLBS def $ case rq of
   StartApplicationSession{..} ->
@@ -294,6 +305,16 @@ toXml rq = renderLBS def $ case rq of
       <activeCall>
         <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
         <callID>#{toText activeCall}
+    |]
+
+  SingleStepConferenceCall{..} ->
+    doc "SingleStepConferenceCall" acceptedProtocol
+    [xml|
+      <deviceToJoin>#{toText deviceId}
+      <activeCall>
+        <deviceID typeOfNumber="other" mediaClass="notKnown">#{toText deviceId}
+        <callID>#{toText activeCall}
+      <participationType>#{toText participationType}
     |]
 
   TransferCall{..} ->

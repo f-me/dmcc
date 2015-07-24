@@ -49,6 +49,9 @@ data Response
     { newCallId :: CallId
     , newUcid :: UCID
     }
+  | SingleStepConferenceCallResponse
+    { conferencedCall :: CallId
+    }
   | GetAgentStateResponse
     { agentState :: Maybe AgentState
       -- ^ Nothing if an unknown state is reported.
@@ -153,6 +156,12 @@ fromXml xml
           { newCallId = CallId $ textFromPath cur "callingDevice" ["callId"]
           , newUcid =
             UCID $ text cur "globallyUniqueCallLinkageID"
+          }
+
+        "SingleStepConferenceCallResponse" ->
+          SingleStepConferenceCallResponse
+          { conferencedCall =
+            CallId $ textFromPath cur "conferencedCall" ["callId"]
           }
 
         "GetAgentStateResponse" ->

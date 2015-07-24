@@ -48,6 +48,7 @@ data Action = MakeCall{number :: Extension}
             | EndCall{callId :: CallId}
             | HoldCall{callId :: CallId}
             | RetrieveCall{callId :: CallId}
+            | BargeIn{callId :: CallId, pType :: ParticipationType}
             | ConferenceCall{activeCall :: CallId, heldCall :: CallId}
             | TransferCall{activeCall :: CallId, heldCall :: CallId}
             | SendDigits{callId :: CallId, digits :: Text}
@@ -384,6 +385,27 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
     AnswerCall callId   -> simpleRequest Rq.AnswerCall callId
     HoldCall callId     -> simpleRequest Rq.HoldCall callId
     RetrieveCall callId -> simpleRequest Rq.RetrieveCall callId
+    BargeIn activeCall m -> do
+      sscR <- sendRequestSync (dmccHandle as) (Just aid) $
+              Rq.SingleStepConferenceCall
+              device
+              activeCall
+              (protocolVersion as)
+              m
+      case sscR of
+        Just (Rs.SingleStepConferenceCallResponse callId) -> do
+          -- Find the call we've stepped in among other agents' calls
+          -- and copy it to us
+          allCalls <- atomically $ do
+            agents <- readTVar (agents as)
+            mapM (liftM _calls . (readTVar . DMCC.Agent.snapshot)) $
+              Map.elems agents
+          case Map.lookup callId (Map.unions allCalls) of
+            Just call ->
+              atomically $
+              modifyTVar' snapshot (calls %~ Map.insert callId call)
+            _ -> return ()
+        _ -> return ()
     ConferenceCall activeCall heldCall ->
       simpleRequest2 Rq.ConferenceCall activeCall heldCall
     TransferCall activeCall heldCall ->

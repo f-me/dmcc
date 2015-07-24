@@ -125,6 +125,14 @@ instance FromJSON AgentState where
   parseJSON _               = fail "Could not parse AgentState"
 
 
+data ParticipationType = Active
+                       | Silent
+                       deriving (Eq, Show)
+
+
+$(deriveJSON defaultOptions ''ParticipationType)
+
+
 data LoggingOptions = LoggingOptions
   { syslogIdent :: String
   }
