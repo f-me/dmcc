@@ -76,7 +76,7 @@ Library
     HsOpenSSL            == 0.11.*,
     hsyslog              == 2.0.*,
     http-client          >= 0.4 && < 0.5,
-    io-streams           == 1.2.*,
+    io-streams           >= 1.2 && < 1.4,
     lens                 >= 4.6 && < 4.13,
     mtl                  >= 2.1 && < 2.3,
     network              >= 2.3 && < 2.7,
@@ -85,5 +85,5 @@ Library
     time                 >= 1.4 && < 1.6,
     transformers         >= 0.3 && < 0.5,
     text                 >= 0.11 && < 1.3,
-    xml-conduit          >= 1.0 && < 1.3,
+    xml-conduit          >= 1.0 && < 1.4,
     xml-hamlet           == 0.4.*

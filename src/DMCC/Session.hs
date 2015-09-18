@@ -241,7 +241,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
         (Just Rs.StartApplicationSessionPosResponse{..}, _) -> do
           sessionMonitorReq actualProtocolVersion
           return ((sessionID, actualSessionDuration), actualProtocolVersion)
-        (Just Rs.StartApplicationSessionNegResponse{..}, Just oldID) -> do
+        (Just Rs.StartApplicationSessionNegResponse, Just oldID) -> do
           -- The old session has expired, start from scratch
           startRsp' <- startReq Nothing
           case startRsp' of
