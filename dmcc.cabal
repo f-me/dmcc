@@ -41,6 +41,7 @@ Executable dmcc-ws
     random               == 1.1.*,
     stm                  == 2.4.*,
     text                 >= 0.11 && < 1.3,
+    time                 >= 1.4 && < 1.6,
     unix                 >= 2.7 && < 2.9,
     websockets           == 0.9.*
 

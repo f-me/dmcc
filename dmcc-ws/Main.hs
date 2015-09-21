@@ -96,7 +96,7 @@ realMain config = do
   bracket
     (syslog Info ("Starting session using " ++ show cfg) >>
      startSession (aesAddr, fromIntegral aesPort)
-     (if aesTLS then (TLS caDir) else Plain)
+     (if aesTLS then TLS caDir else Plain)
      apiUser apiPass
      whUrl
      (if logLibrary then Just defaultLoggingOptions else Nothing)
@@ -110,7 +110,7 @@ realMain config = do
        stopSession s)
     (\s ->
        syslog Info ("Running server for " ++ show s) >>
-       newTMVarIO (Map.empty) >>=
+       newTMVarIO Map.empty >>=
        \refs -> runServer "0.0.0.0" listenPort (avayaApplication cfg s refs))
 
 
@@ -128,10 +128,10 @@ releaseAgentRef ah refs = do
         newR <-
           if cnt > 1
           then return $ Map.insert ah (cnt - 1) r
-          else (releaseAgent ah >>
-                (syslog Debug $
-                 "Agent " ++ show ah ++ " is no longer controlled") >>
-                (return $ Map.delete ah r))
+          else releaseAgent ah >>
+               syslog Debug
+               ("Agent " ++ show ah ++ " is no longer controlled") >>
+               return (Map.delete ah r)
         atomically $ putTMVar refs newR
         return $ cnt - 1
       Nothing -> error $ "Releasing unknown agent " ++ show ah
@@ -143,7 +143,7 @@ avayaApplication :: Config
                  -> AgentMap
                  -- ^ Reference-counting map of used agent ids.
                  -> ServerApp
-avayaApplication cfg as refs pending = do
+avayaApplication Config{..} as refs pending = do
   let rq = pendingRequest pending
       pathArg = map (liftM fst . B.readInt) $ B.split '/' $ requestPath rq
       refReport ext cnt =
@@ -161,7 +161,7 @@ avayaApplication cfg as refs pending = do
       flip onException (atomically $ putTMVar refs r) $ do
         -- Assume that all agents are on the same switch
         let ext' = Extension $ T.pack $ show ext
-        cRsp <- controlAgent (switchName cfg) ext' as
+        cRsp <- controlAgent switchName ext' as
         ah <- case cRsp of
                 Right ah' -> return ah'
                 Left err -> do
@@ -183,7 +183,7 @@ avayaApplication cfg as refs pending = do
         let disconnectionHandler = do
               syslog Debug $ "Websocket closed for " ++ label
               killThread evThread
-              threadDelay $ refDelay cfg * 1000000
+              threadDelay $ refDelay * 1000000
               -- Decrement reference counter when the connection dies or any
               -- other exception happens
               releaseAgentRef ah refs >>= refReport ext'
