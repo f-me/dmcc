@@ -1,4 +1,6 @@
+{-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
 
@@ -24,6 +26,7 @@ import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as T
+import           Data.Time.Clock
 
 import           Network.WebSockets
 
@@ -54,6 +57,7 @@ data Config =
   , sessDur    :: Int
   , connAtts   :: Int
   , connDelay  :: Int
+  , maxLag     :: Int
   }
   deriving Show
 
@@ -92,6 +96,7 @@ realMain config = do
       <*> Cfg.require c "session-duration"
       <*> Cfg.require c "connection-retry-attempts"
       <*> Cfg.require c "connection-retry-delay"
+      <*> Cfg.require c "maximum-lag"
 
   bracket
     (syslog Info ("Starting session using " ++ show cfg) >>
@@ -193,14 +198,25 @@ avayaApplication Config{..} as refs pending = do
           -- Agent actions loop
           forever $ do
             msg <- receiveData conn
-            case eitherDecode msg of
-              Right act -> do
+            case decode msg of
+              Just act -> do
                 syslog Debug $ "Action from " ++ label ++ ": " ++ show act
                 agentAction act ah
-              Left e -> do
-                syslog Debug $
-                  "Unrecognized message from " ++ label ++ ": " ++
-                  BL.unpack msg ++ " (" ++ e ++ ")"
-                sendTextData conn $ encode $
-                  Map.fromList [("errorText" :: String, e)]
+              Nothing ->
+                case eitherDecode msg of
+                  Right (TA act ts) -> do
+                    now <- getCurrentTime
+                    let actLogSuffix = " from " ++ label ++ ": " ++ show act
+                    if now <= fromIntegral maxLag `addUTCTime` ts
+                      then do
+                        syslog Debug $ "Action" ++ actLogSuffix
+                        agentAction act ah
+                      else
+                        syslog Error $ "Too old action" ++ actLogSuffix
+                  Left e -> do
+                    syslog Debug $
+                      "Unrecognized message from " ++ label ++ ": " ++
+                      BL.unpack msg ++ " (" ++ e ++ ")"
+                    sendTextData conn $ encode $
+                      Map.fromList [("errorText" :: String, e)]
     _ -> rejectRequest pending "Malformed extension number"
