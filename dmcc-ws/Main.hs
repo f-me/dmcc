@@ -160,7 +160,6 @@ avayaApplication Config{..} as refs pending = do
       let label = printf "%d/%04x" ext (token :: Int)
       conn <- acceptRequest pending
       syslog Debug $ "New websocket opened for " ++ label
-      forkPingThread conn 30
       -- Create agent reference
       r <- atomically $ takeTMVar refs
       flip onException (atomically $ putTMVar refs r) $ do
