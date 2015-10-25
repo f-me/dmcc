@@ -158,13 +158,18 @@ avayaApplication Config{..} as refs pending = do
       -- A readable label for this connection for debugging purposes
       token <- randomRIO (1, 16 ^ (4 :: Int))
       let label = printf "%d/%04x" ext (token :: Int)
+          -- Assume that all agents are on the same switch
+          ext' = Extension $ T.pack $ show ext
       conn <- acceptRequest pending
       syslog Debug $ "New websocket opened for " ++ label
-      -- Create agent reference
+      -- Create a new agent reference, possibly establishing control
+      -- over the agent
       r <- atomically $ takeTMVar refs
-      flip onException (atomically $ putTMVar refs r) $ do
-        -- Assume that all agents are on the same switch
-        let ext' = Extension $ T.pack $ show ext
+      let initialHandler = do
+            syslog Error $ "Exception when plugging " ++ label
+            atomically $ putTMVar refs r
+            syslog Debug $ "Restored agent references map to " ++ show r
+      (ah, evThread) <- (`onException` initialHandler) $ do
         cRsp <- controlAgent switchName ext' as
         ah <- case cRsp of
                 Right ah' -> return ah'
@@ -184,38 +189,39 @@ avayaApplication Config{..} as refs pending = do
              do
                syslog Debug ("Event for " ++ label ++ ": " ++ show ev)
                sendTextData conn $ encode ev)
-        let disconnectionHandler = do
-              syslog Debug $ "Websocket closed for " ++ label
-              killThread evThread
-              threadDelay $ refDelay * 1000000
-              -- Decrement reference counter when the connection dies or any
-              -- other exception happens
-              releaseAgentRef ah refs >>= refReport ext'
-        handle (\(_ :: ConnectionException) -> disconnectionHandler) $ do
-          s <- getAgentSnapshot ah
-          sendTextData conn $ encode s
-          -- Agent actions loop
-          forever $ do
-            msg <- receiveData conn
-            case decode msg of
-              Just act -> do
-                syslog Debug $ "Action from " ++ label ++ ": " ++ show act
-                agentAction act ah
-              Nothing ->
-                case eitherDecode msg of
-                  Right (TA act ts) -> do
-                    now <- getCurrentTime
-                    let actLogSuffix = " from " ++ label ++ ": " ++ show act
-                    if now <= fromIntegral maxLag `addUTCTime` ts
-                      then do
-                        syslog Debug $ "Action" ++ actLogSuffix
-                        agentAction act ah
-                      else
-                        syslog Error $ "Too old action" ++ actLogSuffix
-                  Left e -> do
-                    syslog Debug $
-                      "Unrecognized message from " ++ label ++ ": " ++
-                      BL.unpack msg ++ " (" ++ e ++ ")"
-                    sendTextData conn $ encode $
-                      Map.fromList [("errorText" :: String, e)]
+        syslog Debug $ (show evThread) ++ " handles events for " ++ label
+        return (ah, evThread)
+      let disconnectionHandler = do
+            syslog Debug $ "Websocket closed for " ++ label
+            killThread evThread
+            threadDelay $ refDelay * 1000000
+            -- Decrement reference counter when the connection dies
+            releaseAgentRef ah refs >>= refReport ext'
+      handle (\(_ :: ConnectionException) -> disconnectionHandler) $ do
+        s <- getAgentSnapshot ah
+        sendTextData conn $ encode s
+        -- Agent actions loop
+        forever $ do
+          msg <- receiveData conn
+          case decode msg of
+            Just act -> do
+              syslog Debug $ "Action from " ++ label ++ ": " ++ show act
+              agentAction act ah
+            Nothing ->
+              case eitherDecode msg of
+                Right (TA act ts) -> do
+                  now <- getCurrentTime
+                  let actLogSuffix = " from " ++ label ++ ": " ++ show act
+                  if now <= fromIntegral maxLag `addUTCTime` ts
+                    then do
+                      syslog Debug $ "Action" ++ actLogSuffix
+                      agentAction act ah
+                    else
+                      syslog Error $ "Too old action" ++ actLogSuffix
+                Left e -> do
+                  syslog Debug $
+                    "Unrecognized message from " ++ label ++ ": " ++
+                    BL.unpack msg ++ " (" ++ e ++ ")"
+                  sendTextData conn $ encode $
+                    Map.fromList [("errorText" :: String, e)]
     _ -> rejectRequest pending "Malformed extension number"
