@@ -24,6 +24,7 @@ import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as T
+import           Data.Version (showVersion)
 
 import           Network.WebSockets
 
@@ -34,6 +35,7 @@ import           System.Posix.Signals
 import           System.Random
 import           Text.Printf
 
+import           Paths_dmcc
 import           DMCC
 
 
@@ -94,7 +96,8 @@ realMain config = do
       <*> Cfg.require c "connection-retry-delay"
 
   bracket
-    (syslog Info ("Starting session using " ++ show cfg) >>
+    (syslog Info ("Running dmcc-" ++ showVersion version) >>
+     syslog Info ("Starting session using " ++ show cfg) >>
      startSession (aesAddr, fromIntegral aesPort)
      (if aesTLS then TLS caDir else Plain)
      apiUser apiPass
