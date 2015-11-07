@@ -61,13 +61,6 @@ $(deriveJSON
   ''Action)
 
 
-data TimestampedAction = TA {action :: Action, ts :: UTCTime}
-                       deriving Show
-
-
-$(deriveJSON defaultOptions ''TimestampedAction)
-
-
 data AgentSnapshot = AgentSnapshot
     { _calls :: Map.Map CallId Call
     , _state :: (Maybe AgentState, Text)

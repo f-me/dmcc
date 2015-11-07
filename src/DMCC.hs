@@ -23,7 +23,6 @@ module DMCC
   , releaseAgent
 
   , Action(..)
-  , TimestampedAction(..)
   , agentAction
 
   , AgentEvent(..)

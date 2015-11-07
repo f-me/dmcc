@@ -1,6 +1,4 @@
-{-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
 
@@ -26,7 +24,6 @@ import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as T
-import           Data.Time.Clock
 
 import           Network.WebSockets
 
@@ -57,7 +54,6 @@ data Config =
   , sessDur    :: Int
   , connAtts   :: Int
   , connDelay  :: Int
-  , maxLag     :: Int
   }
   deriving Show
 
@@ -96,7 +92,6 @@ realMain config = do
       <*> Cfg.require c "session-duration"
       <*> Cfg.require c "connection-retry-attempts"
       <*> Cfg.require c "connection-retry-delay"
-      <*> Cfg.require c "maximum-lag"
 
   bracket
     (syslog Info ("Starting session using " ++ show cfg) >>
@@ -191,11 +186,13 @@ avayaApplication Config{..} as refs pending = do
                sendTextData conn $ encode ev)
         syslog Debug $ (show evThread) ++ " handles events for " ++ label
         return (ah, evThread)
+
       let disconnectionHandler = do
             syslog Debug $ "Websocket closed for " ++ label
             killThread evThread
             threadDelay $ refDelay * 1000000
-            -- Decrement reference counter when the connection dies
+            -- Decrement reference counter when the connection dies or any
+            -- other exception happens
             releaseAgentRef ah refs >>= refReport ext'
       handle (\(_ :: ConnectionException) -> disconnectionHandler) $ do
         s <- getAgentSnapshot ah
@@ -203,25 +200,14 @@ avayaApplication Config{..} as refs pending = do
         -- Agent actions loop
         forever $ do
           msg <- receiveData conn
-          case decode msg of
-            Just act -> do
+          case eitherDecode msg of
+            Right act -> do
               syslog Debug $ "Action from " ++ label ++ ": " ++ show act
               agentAction act ah
-            Nothing ->
-              case eitherDecode msg of
-                Right (TA act ts) -> do
-                  now <- getCurrentTime
-                  let actLogSuffix = " from " ++ label ++ ": " ++ show act
-                  if now <= fromIntegral maxLag `addUTCTime` ts
-                    then do
-                      syslog Debug $ "Action" ++ actLogSuffix
-                      agentAction act ah
-                    else
-                      syslog Error $ "Too old action" ++ actLogSuffix
-                Left e -> do
-                  syslog Debug $
-                    "Unrecognized message from " ++ label ++ ": " ++
-                    BL.unpack msg ++ " (" ++ e ++ ")"
-                  sendTextData conn $ encode $
-                    Map.fromList [("errorText" :: String, e)]
+            Left e -> do
+              syslog Debug $
+                "Unrecognized message from " ++ label ++ ": " ++
+                BL.unpack msg ++ " (" ++ e ++ ")"
+              sendTextData conn $ encode $
+                Map.fromList [("errorText" :: String, e)]
     _ -> rejectRequest pending "Malformed extension number"
