@@ -13,7 +13,7 @@ Maintainer:          max@formalmethods.ru
 Category:            Network
 Build-type:          Simple
 Cabal-version:       >=1.8
-Extra-source-files:  README.org, dmcc-ws/example.cfg
+Extra-source-files:  README.md, dmcc-ws/example.cfg
 
 source-repository head
   type:     git
