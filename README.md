@@ -1,9 +1,13 @@
 # Overview
 
+![Travis CI build status](https://travis-ci.org/f-me/dmcc.svg)
+
 This package contains a Haskell library which can be used to implement
 computer telephony integration using AVAYA DMCC XML API. A simple
-executable WebSocket server (dmcc-ws) built atop the library is also
-included.
+server (dmcc-ws) built atop the library is also included. The server
+allows clients to connect using WebSockets and exchange JSON messages
+with the server to control AVAYA agents and receive event
+notifications and agent state updates.
 
 The package uses third-party call control functions. There's no
 first-party call control support and no access to media streams.
