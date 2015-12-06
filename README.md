@@ -1,6 +1,6 @@
 # Overview
 
-![Travis CI build status](https://travis-ci.org/f-me/dmcc.svg)
+[![Travis CI build status](https://travis-ci.org/f-me/dmcc.svg)](https://travis-ci.org/f-me/dmcc)
 
 This package contains a Haskell library which can be used to implement
 computer telephony integration using AVAYA DMCC XML API. A simple
