@@ -59,6 +59,7 @@ Library
     DMCC.XML.Raw
     DMCC.XML.Request
     DMCC.XML.Response
+    Paths_dmcc
 
   ghc-options: -Wall -fno-warn-unused-do-bind -threaded
 
