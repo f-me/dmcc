@@ -9,7 +9,6 @@ module DMCC.Types
 
 where
 
-import Control.Applicative
 import Data.Aeson as A
 import Data.Aeson.TH
 import Data.CaseInsensitive

@@ -10,7 +10,6 @@ WebSockets interface for DMCC.
 
 module Main where
 
-import           Control.Applicative
 import           Control.Concurrent
 import           Control.Exception
 import           Control.Monad
@@ -187,7 +186,7 @@ avayaApplication Config{..} as refs pending = do
              do
                syslog Debug ("Event for " ++ label ++ ": " ++ show ev)
                sendTextData conn $ encode ev)
-        syslog Debug $ (show evThread) ++ " handles events for " ++ label
+        syslog Debug $ show evThread ++ " handles events for " ++ label
         return (ah, evThread)
 
       let disconnectionHandler = do

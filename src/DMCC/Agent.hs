@@ -14,9 +14,8 @@ module DMCC.Agent
 
 where
 
-import           Control.Applicative
 import           Control.Exception
-import           Control.Lens hiding (Action)
+import           Control.Lens
 import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
