@@ -31,19 +31,19 @@ Executable dmcc-ws
     NamedFieldPuns
 
   Build-depends:
-    base                 == 4.*,
-    aeson                == 0.8.*,
-    bytestring           >= 0.9.1 && < 0.11,
-    configurator         >= 0.2 && < 0.4,
-    containers           == 0.5.*,
+    base,
+    aeson,
+    bytestring,
+    configurator,
+    containers,
     dmcc,
-    hsyslog              == 2.0.*,
-    random               == 1.1.*,
-    stm                  == 2.4.*,
-    text                 >= 0.11 && < 1.3,
-    time                 >= 1.4 && < 1.6,
-    unix                 >= 2.7 && < 2.9,
-    websockets           == 0.9.*
+    hsyslog,
+    random,
+    stm,
+    text,
+    time,
+    unix,
+    websockets
 
 Library
   Hs-source-dirs: src
@@ -69,23 +69,23 @@ Library
     NamedFieldPuns
 
   Build-depends:
-    base                 == 4.*,
-    aeson                == 0.8.*,
-    binary               >= 0.5 && < 0.8,
-    bytestring           >= 0.9.1 && < 0.11,
-    case-insensitive     == 1.2.*,
-    containers           == 0.5.*,
-    HsOpenSSL            == 0.11.*,
-    hsyslog              == 2.0.*,
-    http-client          >= 0.4 && < 0.5,
-    io-streams           >= 1.2 && < 1.4,
-    lens                 >= 4.6 && < 4.13,
-    mtl                  >= 2.1 && < 2.3,
-    network              >= 2.3 && < 2.7,
-    openssl-streams      == 1.2.*,
-    stm                  == 2.4.*,
-    time                 >= 1.4 && < 1.6,
-    transformers         >= 0.3 && < 0.5,
-    text                 >= 0.11 && < 1.3,
-    xml-conduit          >= 1.0 && < 1.4,
-    xml-hamlet           == 0.4.*
+    base,
+    aeson,
+    binary,
+    bytestring,
+    case-insensitive,
+    containers,
+    HsOpenSSL,
+    hsyslog,
+    http-client,
+    io-streams,
+    lens,
+    mtl,
+    network,
+    openssl-streams,
+    stm,
+    time,
+    transformers,
+    text,
+    xml-conduit,
+    xml-hamlet
