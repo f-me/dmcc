@@ -1,0 +1,62 @@
+---
+name: dmcc
+version: 0.6.0
+synopsis: AVAYA DMCC XML API implementation and WebSockets server
+description:
+  >-
+    Partial implementation of CSTA Phase III XML Protocol (ECMA-323)
+    with AVAYA (DMCC 6.3) extensions.
+github: f-me/dmcc
+license: BSD3
+author: Max Taldykin, Timofey Cherganov, Dmitry Dzhus
+maintainer: dmitry@formalmethods.ru
+category: Network
+
+extra-source-files:
+  - README.md
+  - dmcc-ws/example.cfg
+
+default-extensions:
+  - OverloadedStrings,
+  - RecordWildCards,
+  - NamedFieldPuns
+
+ghc-options: -Wall -fno-warn-unused-do-bind -threaded
+dependencies:
+  - aeson
+  - base
+  - bytestring
+  - containers
+  - hsyslog
+  - stm
+  - text
+  - time
+
+library:
+  source-dirs: src
+  dependencies:
+    - binary
+    - case-insensitive
+    - HsOpenSSL
+    - http-client
+    - io-streams
+    - lens
+    - mtl
+    - network
+    - openssl-streams
+    - transformers
+    - xml-conduit
+    - xml-hamlet
+
+executables:
+  dmcc-ws:
+    main: Main.hs
+    source-dirs: dmcc-ws
+    dependencies:
+      - configurator
+      - dmcc
+      - random
+      - unix
+      - websockets
+    other-modules:
+      - Paths_dmcc
