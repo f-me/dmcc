@@ -46,7 +46,7 @@ sendRequest lopts h ix rq =
     do
       maybeSyslog lopts Debug $
         "Sending request (invokeId=" ++ show ix ++ ") " ++
-        (show $ L8.unpack rawRequest)
+        show (L8.unpack rawRequest)
       flip Streams.writeLazyByteString h $ runPut $ do
         putWord16be 0
         putWord16be . fromIntegral $ 8 + L.length rawRequest
@@ -69,7 +69,7 @@ readResponse lopts h = do
   resp <- readLazy (len - 8)
   maybeSyslog lopts Debug $
     "Received response (invokeId=" ++ show invokeId ++ ") " ++
-    (show $ L8.unpack resp)
+    show (L8.unpack resp)
   return (fromXml resp, invokeId)
   where
     readHeader = do

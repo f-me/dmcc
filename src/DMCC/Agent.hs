@@ -70,7 +70,7 @@ data AgentSnapshot = AgentSnapshot
 
 instance ToJSON AgentSnapshot where
   toJSON s =
-    object [ "calls" A..= (Map.mapKeys (\(CallId t) -> t) $ _calls s)
+    object [ "calls" A..= Map.mapKeys (\(CallId t) -> t) (_calls s)
            , "state" A..= _state s
            ]
 
@@ -78,7 +78,7 @@ instance ToJSON AgentSnapshot where
 instance FromJSON AgentSnapshot where
   parseJSON (Object o) =
     AgentSnapshot
-    <$> ((Map.mapKeys CallId) `liftM` (o .: "calls"))
+    <$> Map.mapKeys CallId `liftM` (o .: "calls")
     <*> (o .: "state")
   parseJSON _ = fail "Could not parse AgentSnapshot from non-object"
 
@@ -180,7 +180,7 @@ agentAction :: Action -> AgentHandle -> IO ()
 agentAction cmd (AgentHandle (aid, as)) = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
-    Just (Agent{..}) -> atomically $ writeTChan actionChan cmd
+    Just Agent{..} -> atomically $ writeTChan actionChan cmd
     Nothing -> throwIO $ UnknownAgent aid
 
 
@@ -226,7 +226,7 @@ controlAgent switch ext as = do
         -- attached to the agent (Nothing) as it has not been inserted
         -- in the agent map of the session yet).
         gdiRsp <-
-          sendRequestSync (dmccHandle as) Nothing $
+          sendRequestSync (dmccHandle as) Nothing
           Rq.GetDeviceId
           { switchName = switch
           , extension = ext
@@ -242,7 +242,7 @@ controlAgent switch ext as = do
               throwIO $ DeviceError "Bad GetDeviceId response"
 
         msrRsp <-
-          sendRequestSync (dmccHandle as) Nothing $
+          sendRequestSync (dmccHandle as) Nothing
           Rq.MonitorStart
           { acceptedProtocol = protocolVersion as
           , monitorRq = Rq.Device device
@@ -263,7 +263,7 @@ controlAgent switch ext as = do
         actionChan <- newTChanIO
         actionThread <-
           forkIO $ forever $
-          (atomically $ readTChan actionChan) >>=
+          atomically (readTChan actionChan) >>=
           processAgentAction aid device snapshot as
 
         eventChan <- newBroadcastTChanIO
@@ -271,7 +271,7 @@ controlAgent switch ext as = do
         rspChan <- newTChanIO
         rspThread <-
           forkIO $ forever $
-          (atomically $ readTChan rspChan) >>=
+          atomically (readTChan rspChan) >>=
           processAgentEvent aid device snapshot eventChan as
 
         -- As of DMCC 6.2.x, agent state change events are not
@@ -281,13 +281,13 @@ controlAgent switch ext as = do
         -- the agent state.
 
         -- Find out initial agent state
-        gsRsp' <- sendRequestSync (dmccHandle as) (Just aid) $
+        gsRsp' <- sendRequestSync (dmccHandle as) (Just aid)
               Rq.GetAgentState
               { device = device
               , acceptedProtocol = protocolVersion as
               }
         case gsRsp' of
-          Just (Rs.GetAgentStateResponse{..}) ->
+          Just Rs.GetAgentStateResponse{..} ->
             atomically $
             modifyTVar' snapshot (state .~ (agentState, reasonCode))
           Just (Rs.CSTAErrorCodeResponse errorCode) ->
@@ -297,16 +297,16 @@ controlAgent switch ext as = do
         -- State polling thread
         stateThread <-
           forkIO $ forever $ do
-            gsRsp <- sendRequestSync (dmccHandle as) (Just aid) $
+            gsRsp <- sendRequestSync (dmccHandle as) (Just aid)
               Rq.GetAgentState
               { device = device
               , acceptedProtocol = protocolVersion as
               }
             case gsRsp of
-              Just (Rs.GetAgentStateResponse{..}) -> do
+              Just Rs.GetAgentStateResponse{..} -> do
                 ns <- atomically $ do
                   sn <- readTVar snapshot
-                  case (_state sn /= (agentState, reasonCode)) of
+                  case _state sn /= (agentState, reasonCode) of
                     False -> return Nothing
                     True -> do
                       modifyTVar' snapshot (state .~ (agentState, reasonCode))
@@ -320,7 +320,7 @@ controlAgent switch ext as = do
               -- Ignore state errors
               _ -> return ()
             threadDelay $
-              (statePollingDelay $ sessionOptions $ dmccHandle as) * 1000000
+              statePollingDelay (sessionOptions $ dmccHandle as) * 1000000
 
         let ag = Agent
                  device
@@ -359,7 +359,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
     -- to the agent.
     MakeCall toNumber -> do
       rspDest <-
-        sendRequestSync (dmccHandle as) (Just aid) $
+        sendRequestSync (dmccHandle as) (Just aid)
         Rq.GetThirdPartyDeviceId
         -- Assume destination switch is the same as agent's
         { switchName = switch
@@ -397,7 +397,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
           -- and copy it to us
           allCalls <- atomically $ do
             agents <- readTVar (agents as)
-            mapM (liftM _calls . (readTVar . DMCC.Agent.snapshot)) $
+            mapM (fmap _calls . readTVar . DMCC.Agent.snapshot) $
               Map.elems agents
           case Map.lookup callId (Map.unions allCalls) of
             Just call ->
@@ -445,7 +445,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
       s <- readTVar snapshot
       case Map.lookup callId (_calls s) of
         Just call ->
-          modifyTVar' snapshot $ \m -> m & calls %~ (callMod call)
+          modifyTVar' snapshot $ \m -> m & calls %~ callMod call
         Nothing ->
           writeTChan eventChan $ TelephonyEventError err
   now <- getCurrentTime
@@ -514,16 +514,16 @@ processAgentEvent aid device snapshot eventChan as rs = do
                                 else (In distributingVdn, callingDevice)
               call = Call dir ucid now [interloc] Nothing False False
           Rs.DivertedEvent{..} -> do
-            modifyTVar' snapshot $ (calls %~ at callId .~ Nothing)
+            modifyTVar' snapshot $ calls %~ at callId .~ Nothing
             return True
           Rs.EstablishedEvent{..} -> do
             callOperation callId
-              (\call -> Map.insert callId call{answered = Just now}) $
+              (\call -> Map.insert callId call{answered = Just now})
               "Established connection to an undelivered call"
             return True
           Rs.FailedEvent{..} -> do
             callOperation callId
-              (\call -> Map.insert callId call{failed = True}) $
+              (\call -> Map.insert callId call{failed = True})
               "Failed an unknown call"
             return True
           -- ConnectionCleared event arrives when line is put on HOLD too.
@@ -531,16 +531,16 @@ processAgentEvent aid device snapshot eventChan as rs = do
           -- releasingDevice value.
           Rs.ConnectionClearedEvent{..} -> do
             let really = releasingDevice == device
-            when really $ modifyTVar' snapshot $ (calls %~ at callId .~ Nothing)
+            when really $ modifyTVar' snapshot (calls %~ at callId .~ Nothing)
             return really
           Rs.HeldEvent{..} -> do
             callOperation callId
-              (\call -> Map.insert callId call{held = True}) $
+              (\call -> Map.insert callId call{held = True})
               "Held an undelivered call"
             return True
           Rs.RetrievedEvent{..} -> do
             callOperation callId
-              (\call -> Map.insert callId call{held = False}) $
+              (\call -> Map.insert callId call{held = False})
               "Retrieved an undelivered call"
             return True
           -- Conferencing call A to call B yields ConferencedEvent with
@@ -549,7 +549,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
             s <- readTVar snapshot
             case (Map.lookup prim (_calls s), Map.lookup sec (_calls s)) of
               (Just oldCall, Just newCall) -> do
-                modifyTVar' snapshot $ (calls %~ at prim .~ Nothing)
+                modifyTVar' snapshot $ calls %~ at prim .~ Nothing
                 callOperation sec
                   (\call ->
                      Map.insert sec
@@ -562,8 +562,8 @@ processAgentEvent aid device snapshot eventChan as rs = do
               -- user request (recorder single-stepping in).
               _ -> return False
           Rs.TransferedEvent prim sec -> do
-            modifyTVar' snapshot $ (calls %~ at prim .~ Nothing)
-            modifyTVar' snapshot $ (calls %~ at sec .~ Nothing)
+            modifyTVar' snapshot $ calls %~ at prim .~ Nothing
+            modifyTVar' snapshot $ calls %~ at sec .~ Nothing
             return True
           Rs.UnknownEvent -> return False
         s <- readTVar snapshot
@@ -607,7 +607,7 @@ releaseAgent ah@(AgentHandle (aid, as)) = do
       False -> do
         ags <- readTVar (agents as)
         case Map.lookup aid ags of
-          Just ag -> placeAgentLock ah >> (return $ Just ag)
+          Just ag -> placeAgentLock ah >> return (Just ag)
           Nothing -> return Nothing
 
   case prev of
@@ -615,17 +615,17 @@ releaseAgent ah@(AgentHandle (aid, as)) = do
     Just ag ->
       handle (\e ->
                 releaseAgentLock ah >>
-                (throwIO (e :: IOException))) $
+                throwIO (e :: IOException)) $
       do
         killThread (actionThread ag)
         killThread (rspThread ag)
         killThread (stateThread ag)
-        sendRequestSync (dmccHandle as) (Just aid) $
+        sendRequestSync (dmccHandle as) (Just aid)
           Rq.MonitorStop
           { acceptedProtocol = protocolVersion as
           , monitorCrossRefID = monitorId ag
           }
-        sendRequestSync (dmccHandle as) (Just aid) $
+        sendRequestSync (dmccHandle as) (Just aid)
           Rq.ReleaseDeviceId{device = deviceId ag}
         atomically $ modifyTVar' (agents as) (Map.delete aid)
         releaseAgentLock ah
@@ -638,13 +638,10 @@ handleEvents (AgentHandle (aid, as)) handler = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
     Nothing -> throwIO $ UnknownAgent aid
-    Just (Agent{..}) ->
+    Just Agent{..} ->
       do
         sub <- atomically $ dupTChan eventChan
-        tid <- forkIO $ forever $ do
-          ev <- atomically $ readTChan sub
-          handler ev
-        return tid
+        forkIO $ forever $ handler =<< atomically (readTChan sub)
 
 
 getAgentSnapshot :: AgentHandle
@@ -653,4 +650,4 @@ getAgentSnapshot (AgentHandle (aid, as)) = do
   ags <- readTVarIO (agents as)
   case Map.lookup aid ags of
     Nothing -> throwIO $ UnknownAgent aid
-    Just (Agent{..}) -> readTVarIO snapshot
+    Just Agent{..} -> readTVarIO snapshot

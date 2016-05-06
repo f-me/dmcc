@@ -51,13 +51,11 @@ newtype Extension =
 
 
 instance FromJSON Extension where
-  parseJSON (A.String s) =
-    if (T.length s > 30)
-    then fail "Maximum extension length is 30 digits"
-    else
-      if (\c -> c `elem` (['0'..'9'] ++ ['*', '#'])) `T.all` s
-      then return $ Extension s
-      else fail "Extension must contain the digits 0-9, * or #"
+  parseJSON (A.String s)
+    | T.length s > 30 = fail "Maximum extension length is 30 digits"
+    | (\c -> c `elem` (['0'..'9'] ++ ['*', '#'])) `T.all` s =
+      return $ Extension s
+    | otherwise = fail "Extension must contain the digits 0-9, * or #"
   parseJSON _ = fail "Could not parse extension"
 
 

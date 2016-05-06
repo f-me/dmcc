@@ -3,7 +3,6 @@
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 
 {-|
@@ -34,7 +33,6 @@ import           Control.Monad
 import           Control.Exception
 import           Control.Concurrent
 import           Control.Concurrent.STM
-import           Data.Functor
 
 import           Data.ByteString (ByteString)
 import           Data.List
@@ -116,7 +114,7 @@ data Session = Session
 
 instance Show Session where
   show as =
-    "Session{protocolVersion=" ++ (unpack $ protocolVersion as) ++ "}"
+    "Session{protocolVersion=" ++ unpack (protocolVersion as) ++ "}"
 
 
 data LoopEvent
@@ -176,7 +174,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
           maybeSyslog lopts Critical ("Connection failed: " ++ show e)
           if attempts > 0
           then do
-            threadDelay $ (connectionRetryDelay sopts) * 1000000
+            threadDelay $ connectionRetryDelay sopts * 1000000
             connect1 (attempts - 1)
           else throwIO e
         connect1 attempts =
@@ -208,7 +206,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
                      -> IO ((Text, Int), Text)
     startDMCCSession old = do
       let
-        sendReq req =
+        sendReq =
           sendRequestSyncRaw
           lopts
           conn
@@ -216,9 +214,8 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
           invoke
           syncResponses
           Nothing
-          req
         startReq sid =
-          sendReq $
+          sendReq
           Rq.StartApplicationSession
           { applicationId = ""
           , requestedProtocolVersion = Rq.DMCC_6_2
@@ -231,7 +228,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
         -- Start a session monitor to enable TransferMonitorObjects
         -- feature
         sessionMonitorReq proto =
-          sendReq $
+          sendReq
           Rq.MonitorStart
           { acceptedProtocol = proto
           , monitorRq = Rq.Session
@@ -253,7 +250,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
                 conn
                 reconnect
                 invoke
-                Nothing $
+                Nothing
                 Rq.TransferMonitorObjects
                 { fromSessionID = oldID
                 , toSessionID = sessionID
@@ -347,7 +344,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
   pingThread <- forkIO $ forever $ do
     -- Do not send a keep-alive message if the session is not ready
     (sid, duration) <- atomically $ readTMVar sess
-    sendRequestAsyncRaw lopts conn reconnect invoke Nothing $
+    sendRequestAsyncRaw lopts conn reconnect invoke Nothing
       Rq.ResetApplicationSessionTimer
       { sessionId = sid
       , requestedSessionDuration = duration
@@ -392,15 +389,13 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
 
 -- | TODO Agent releasing notice
 stopSession :: Session -> IO ()
-stopSession as@(Session{..}) = do
+stopSession as@Session{..} = do
   -- Release all agents
   ags <- readTVarIO agents
   (s, _) <- atomically $ readTMVar $ dmccSession dmccHandle
-  mapM_ releaseAgent $
-    map (\aid -> AgentHandle (aid, as)) (Map.keys ags)
+  mapM_ (releaseAgent . (\aid -> AgentHandle (aid, as))) $ Map.keys ags
 
-  sendRequestAsync dmccHandle Nothing $
-    Rq.StopApplicationSession{sessionID = s}
+  sendRequestAsync dmccHandle Nothing Rq.StopApplicationSession{sessionID = s}
   killThread $ pingThread dmccHandle
   killThread $ procThread dmccHandle
   killThread $ readThread dmccHandle
@@ -430,7 +425,7 @@ sendRequestSync :: DMCCHandle
                 -- AgentHandle).
                 -> Request
                 -> IO (Maybe Response)
-sendRequestSync (DMCCHandle{..}) aid rq = do
+sendRequestSync DMCCHandle{..} aid rq = do
   void $ atomically $ readTMVar dmccSession
   sendRequestSyncRaw
     loggingOptions
@@ -492,7 +487,7 @@ sendRequestAsync :: DMCCHandle
                  -- processor.
                  -> Request
                  -> IO ()
-sendRequestAsync (DMCCHandle{..}) aid rq = do
+sendRequestAsync DMCCHandle{..} aid rq = do
   void $ atomically $ readTMVar dmccSession
   sendRequestAsyncRaw
     loggingOptions

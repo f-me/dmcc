@@ -125,6 +125,7 @@ fromXml xml
   = case parseLBS def xml of
     Left err -> MalformedResponse xml err
     Right doc -> let cur = fromDocument doc
+                     evResp = EventResponse (text cur "monitorCrossRefID")
       in case nameLocalName $ elementName $ documentRoot doc of
         "StartApplicationSessionPosResponse" ->
           StartApplicationSessionPosResponse
@@ -198,8 +199,7 @@ fromXml xml
           { linkageUcid = UCID $ text cur "globallyUniqueCallLinkageID"
           }
 
-        "DeliveredEvent" ->
-          EventResponse (text cur "monitorCrossRefID") $
+        "DeliveredEvent" -> evResp
           DeliveredEvent
           { callId =
             CallId $ textFromPath cur "connection" ["callId"]
@@ -214,8 +214,7 @@ fromXml xml
             DeviceId $ mk $ textFromPath cur "calledDevice" ["deviceIdentifier"]
           }
 
-        "OriginatedEvent" ->
-          EventResponse (text cur "monitorCrossRefID") $
+        "OriginatedEvent" -> evResp
           OriginatedEvent
           { callId =
             CallId $ textFromPath cur "originatedConnection" ["callId"]
@@ -225,43 +224,37 @@ fromXml xml
             DeviceId $ mk $ textFromPath cur "calledDevice" ["deviceIdentifier"]
           }
 
-        "DivertedEvent" ->
-          EventResponse (text cur "monitorCrossRefID") $
+        "DivertedEvent" -> evResp
           DivertedEvent
           { callId =
             CallId $ textFromPath cur "connection" ["callID"]
           }
 
-        "EstablishedEvent" ->
-          EventResponse (text cur "monitorCrossRefID") $
+        "EstablishedEvent" -> evResp
           EstablishedEvent
           { callId =
             CallId $ textFromPath cur "establishedConnection" ["callId"]
           }
 
-        "FailedEvent" ->
-          EventResponse (text cur "monitorCrossRefID") $
+        "FailedEvent" -> evResp
           FailedEvent
           { callId =
             CallId $ textFromPath cur "failedConnection" ["callId"]
           }
 
-        "HeldEvent" ->
-          EventResponse (text cur "monitorCrossRefID") $
+        "HeldEvent" -> evResp
           HeldEvent
           { callId =
             CallId $ textFromPath cur "heldConnection" ["callId"]
           }
 
-        "RetrievedEvent" ->
-          EventResponse (text cur "monitorCrossRefID") $
+        "RetrievedEvent" -> evResp
           RetrievedEvent
           { callId =
             CallId $ textFromPath cur "retrievedConnection" ["callId"]
           }
 
-        "ConferencedEvent" ->
-          EventResponse (text cur "monitorCrossRefID") $
+        "ConferencedEvent" -> evResp
           ConferencedEvent
           { primaryOldCall =
             CallId $ textFromPath cur "primaryOldCall" ["callId"]
@@ -269,8 +262,7 @@ fromXml xml
             CallId $ textFromPath cur "secondaryOldCall" ["callId"]
           }
 
-        "TransferedEvent" ->
-          EventResponse (text cur "monitorCrossRefID") $
+        "TransferedEvent" -> evResp
           TransferedEvent
           { primaryOldCall =
             CallId $ textFromPath cur "primaryOldCall" ["callId"]
@@ -278,8 +270,7 @@ fromXml xml
             CallId $ textFromPath cur "secondaryOldCall" ["callId"]
           }
 
-        "ConnectionClearedEvent" ->
-          EventResponse (text cur "monitorCrossRefID") $
+        "ConnectionClearedEvent" -> evResp
           ConnectionClearedEvent
           { callId =
             CallId $ textFromPath cur "droppedConnection" ["callId"]
@@ -292,7 +283,7 @@ fromXml xml
           CSTAErrorCodeResponse
           { errorText =
             let
-              msg = T.concat $ (cur $// content)
+              msg = T.concat $ cur $// content
               err = case map node (cur $/ checkElement (const True)) of
                       (NodeElement el:_) ->
                         nameLocalName $ elementName el
@@ -323,5 +314,5 @@ textFromPath cur rootName extraNames =
   where
     contents =
       cur $//
-      ((foldl1' (&/) (Data.List.map laxElement (rootName:extraNames)))
+      (foldl1' (&/) (Data.List.map laxElement (rootName:extraNames))
        &/ content)

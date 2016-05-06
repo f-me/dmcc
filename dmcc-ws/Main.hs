@@ -77,7 +77,7 @@ main = getArgs >>= \case
 realMain :: FilePath -> IO ()
 realMain config = do
   c <- Cfg.load [Cfg.Required config]
-  cfg@(Config{..}) <- Config
+  cfg@Config{..} <- Config
       <$> Cfg.require c "listen-port"
       <*> Cfg.require c "aes-addr"
       <*> Cfg.require c "aes-port"
@@ -147,7 +147,7 @@ avayaApplication :: Config
                  -> ServerApp
 avayaApplication Config{..} as refs pending = do
   let rq = pendingRequest pending
-      pathArg = map (liftM fst . B.readInt) $ B.split '/' $ requestPath rq
+      pathArg = map (fmap fst . B.readInt) $ B.split '/' $ requestPath rq
       refReport ext cnt =
         syslog Debug $ show ext ++ " has " ++ show cnt ++ " references"
   case pathArg of
