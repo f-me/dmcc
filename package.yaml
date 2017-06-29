@@ -26,9 +26,10 @@ dependencies:
   - aeson
   - base
   - bytestring
+  - classy-prelude
   - containers
-  - hsyslog
-  - stm
+  - monad-logger
+  - stm-lifted
   - text
   - time
 
