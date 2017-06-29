@@ -1,4 +1,4 @@
-# Overview
+# dmcc: AVAYA library for Haskell
 
 [![Travis CI build status](https://travis-ci.org/f-me/dmcc.svg)](https://travis-ci.org/f-me/dmcc)
 
