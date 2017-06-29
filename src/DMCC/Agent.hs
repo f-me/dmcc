@@ -580,25 +580,24 @@ processAgentEvent aid device snapshot eventChan as rs = do
 
 -- | Send agent event data to a web hook endpoint, ignoring possible
 -- exceptions.
-sendWH :: (HTTP.Request, HTTP.Manager)
-       -> Maybe LoggingOptions
+sendWH :: MonadLoggerIO m
+       => (HTTP.Request, HTTP.Manager)
        -> AgentId
        -> AgentEvent
-       -> IO ()
-sendWH (req, mgr) lopts aid payload =
+       -> m ()
+sendWH (req, mgr) aid payload =
   handle (\(e :: HTTP.HttpException) ->
-            maybeSyslog lopts Syslog.Error $
-            "Webhook error for agent " ++ show aid ++
-            ", event " ++ show payload ++ ": " ++
-            show e) $
+            logErrorN $
+            "Webhook error for agent " <> tshow aid <>
+            ", event " <> tshow payload <> ": " <>
+            tshow e) $
   void $ httpNoBody req{requestBody = rqBody, method = "POST"} mgr
   where
     rqBody = HTTP.RequestBodyLBS $ A.encode $ WHEvent aid payload
 
 
 -- | Forget about an agent, releasing his device and monitors.
-releaseAgent :: AgentHandle
-             -> IO ()
+releaseAgent :: AgentHandle -> IO ()
 releaseAgent ah@(AgentHandle (aid, as)) = do
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)
