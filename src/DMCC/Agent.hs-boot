@@ -2,7 +2,7 @@ module DMCC.Agent
 
 where
 
-import           Control.Concurrent.STM (TChan)
+import           Control.Concurrent.STM.Lifted (TChan)
 import           Data.Text (Text)
 
 import           DMCC.Types
