@@ -73,6 +73,7 @@ data ConnectionType = Plain
                     | TLS { caDir :: Maybe FilePath }
 
 
+-- | Third element is a connection close action.
 type ConnectionData = (InputStream ByteString, OutputStream ByteString, IO ())
 
 
@@ -134,7 +135,7 @@ defaultSessionOptions :: SessionOptions
 defaultSessionOptions = SessionOptions 1 120 24 5
 
 
-startSession :: MonadLoggerIO m
+startSession :: (MonadBase IO m, MonadCatchLoggerIO m)
              => (String, PortNumber)
              -- ^ Host and port of AES server.
              -> ConnectionType
@@ -195,10 +196,11 @@ startSession (host, port) ct user pass whUrl sopts = do
               return (is, os, cl)
 
     -- Start new DMCC session
-    startDMCCSession :: Maybe Text
+    startDMCCSession :: MonadCatchLoggerIO m
+                     => Maybe Text
                      -- ^ Previous session ID (we attempt to recover
                      -- when this is given).
-                     -> IO ((Text, Int), Text)
+                     -> m ((Text, Int), Text)
     startDMCCSession old = do
       let
         sendReq =
@@ -256,6 +258,7 @@ startSession (host, port) ct user pass whUrl sopts = do
     -- Restart I/O and DMCC session. This routine returns when new I/O
     -- streams become available (starting DMCC session requires
     -- response reader thread to be functional).
+    reconnect :: MonadCatchLoggerIO m => m ()
     reconnect = do
       logWarnN "Attempting reconnection"
       -- Only one reconnection at a time
@@ -271,8 +274,8 @@ startSession (host, port) ct user pass whUrl sopts = do
       handle
         (\(e :: IOException) ->
            logErrorN $
-           "Failed to close old connection: " <> tshow e)
-        cl
+           "Failed to close old connection: " <> tshow e) $
+        liftIO cl
       -- We do not change the protocol version during session recovery
       connect >>= atomically . putTMVar conn
       logWarnN "Connection re-established"
@@ -358,12 +361,12 @@ startSession (host, port) ct user pass whUrl sopts = do
 
   -- Start the session
   (liftIO connect) >>= atomically . putTMVar conn
-  (newSession, actualProtocolVersion) <- startDMCCSession Nothing
+  (newSession, actualProtocolVersion) <- liftIO $ startDMCCSession Nothing
   atomically $ putTMVar sess newSession
 
   wh <- case whUrl of
           Just url -> do
-            mgr <- HTTP.newManager HTTP.defaultManagerSettings
+            mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
             req <- HTTP.parseUrl url
             return $ Just (req, mgr)
           Nothing -> return Nothing
