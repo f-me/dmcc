@@ -15,7 +15,7 @@ before_install:
 - stack $ARGS --no-terminal setup
 
 script:
-- wget https://raw.github.com/ndmitchell/hlint/master/misc/travis.sh -O - --quiet | sh -s .
+- curl -sL https://raw.github.com/ndmitchell/hlint/master/misc/travis.sh | sh -s .
 - stack $ARGS --no-terminal test $FLAGS --haddock
 
 cache:
