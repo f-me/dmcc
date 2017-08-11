@@ -28,6 +28,7 @@ dependencies:
   - bytestring
   - containers
   - hsyslog
+  - monad-logger
   - stm
   - text
   - time
@@ -42,6 +43,7 @@ library:
     - io-streams
     - lens
     - mtl
+    - monad-logger
     - network
     - openssl-streams
     - transformers
