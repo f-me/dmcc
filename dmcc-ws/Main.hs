@@ -13,7 +13,6 @@ module Main where
 import           Control.Concurrent
 import           Control.Exception
 import           Control.Monad
-import           Control.Monad.Logger.CallStack
 import           Control.Concurrent.STM
 
 import           Data.Aeson hiding (Error)
@@ -59,17 +58,15 @@ data Config =
   }
   deriving Show
 
-instance MonadLogger IO where
-  monadLoggerLog _ _ _ = pure $ pure ()
 
 main :: IO ()
 main = getArgs >>= \case
-  [config] -> withSyslog "dmcc-ws" [LogPID] User $ do
+  [config] -> withSyslog "dmcc-ws" [PID] USER (logUpTo Debug) $ do
     this <- myThreadId
     -- Terminate on SIGTERM
     _ <- installHandler
          sigTERM
-         (Catch (logInfo (T.pack "Termination signal received") >>
+         (Catch (syslog Notice "Termination signal received" >>
                  throwTo this ExitSuccess))
          Nothing
     realMain config
@@ -98,8 +95,8 @@ realMain config = do
       <*> Cfg.require c "connection-retry-delay"
 
   bracket
-    (logInfo (T.pack ("Running dmcc-" ++ showVersion version)) >>
-     logInfo (T.pack ("Starting session using " ++ show cfg)) >>
+    (syslog Info ("Running dmcc-" ++ showVersion version) >>
+     syslog Info ("Starting session using " ++ show cfg) >>
      startSession (aesAddr, fromIntegral aesPort)
      (if aesTLS then TLS caDir else Plain)
      apiUser apiPass
@@ -111,10 +108,10 @@ realMain config = do
                           , connectionRetryDelay = connDelay
                           })
     (\s ->
-       logInfo (T.pack ("Stopping " ++ show s)) >>
+       syslog Info ("Stopping " ++ show s) >>
        stopSession s)
     (\s ->
-       logInfo (T.pack ("Running server for " ++ show s)) >>
+       syslog Info ("Running server for " ++ show s) >>
        newTMVarIO Map.empty >>=
        \refs -> runServer "0.0.0.0" listenPort (avayaApplication cfg s refs))
 
@@ -134,7 +131,8 @@ releaseAgentRef ah refs = do
           if cnt > 1
           then return $ Map.insert ah (cnt - 1) r
           else releaseAgent ah >>
-               (logInfo $ (T.pack $ "Agent " ++ show ah ++ " is no longer controlled")) >>
+               syslog Debug
+               ("Agent " ++ show ah ++ " is no longer controlled") >>
                return (Map.delete ah r)
         atomically $ putTMVar refs newR
         return $ cnt - 1
@@ -151,7 +149,7 @@ avayaApplication Config{..} as refs pending = do
   let rq = pendingRequest pending
       pathArg = map (fmap fst . B.readInt) $ B.split '/' $ requestPath rq
       refReport ext cnt =
-        logInfo $ (T.pack $ show ext ++ " has " ++ show cnt ++ " references")
+        syslog Debug $ show ext ++ " has " ++ show cnt ++ " references"
   case pathArg of
     [Nothing, Just ext] -> do
       -- A readable label for this connection for debugging purposes
@@ -160,39 +158,39 @@ avayaApplication Config{..} as refs pending = do
           -- Assume that all agents are on the same switch
           ext' = Extension $ T.pack $ show ext
       conn <- acceptRequest pending
-      logInfo $ (T.pack $ "New websocket opened for " ++ label)
+      syslog Debug $ "New websocket opened for " ++ label
       -- Create a new agent reference, possibly establishing control
       -- over the agent
       r <- atomically $ takeTMVar refs
       let initialHandler = do
-            logInfo $ (T.pack $ "Exception when plugging " ++ label)
+            syslog Error $ "Exception when plugging " ++ label
             atomically $ putTMVar refs r
-            logInfo $ (T.pack $ "Restored agent references map to " ++ show r)
+            syslog Debug $ "Restored agent references map to " ++ show r
       (ah, evThread) <- (`onException` initialHandler) $ do
         cRsp <- controlAgent switchName ext' as
         ah <- case cRsp of
                 Right ah' -> return ah'
                 Left err -> do
                   sendTextData conn $ encode $ RequestError $ show err
-                  logInfo $ (T.pack $ "Could not control agent for " ++
-                    label ++ ": " ++ show err)
+                  syslog Error $ "Could not control agent for " ++
+                    label ++ ": " ++ show err
                   throwIO err
         -- Increment reference counter
         let oldCount = fromMaybe 0 $ Map.lookup ah r
         atomically $ putTMVar refs (Map.insert ah (oldCount + 1) r)
-        logInfo $ (T.pack $ "Controlling agent " ++ show ah ++ " from " ++ label)
+        syslog Debug $ "Controlling agent " ++ show ah ++ " from " ++ label
         refReport ext' (oldCount + 1)
         -- Agent events loop
         evThread <- handleEvents ah
           (\ev ->
              do
-               logInfo $ (T.pack $ "Event for " ++ label ++ ": " ++ show ev)
+               syslog Debug ("Event for " ++ label ++ ": " ++ show ev)
                sendTextData conn $ encode ev)
-        logInfo $ (T.pack $ show evThread ++ " handles events for " ++ label)
+        syslog Debug $ show evThread ++ " handles events for " ++ label
         return (ah, evThread)
 
       let disconnectionHandler = do
-            logInfo $ (T.pack $ "Websocket closed for " ++ label)
+            syslog Debug $ "Websocket closed for " ++ label
             killThread evThread
             threadDelay $ refDelay * 1000000
             -- Decrement reference counter when the connection dies or any
@@ -206,13 +204,12 @@ avayaApplication Config{..} as refs pending = do
           msg <- receiveData conn
           case eitherDecode msg of
             Right act -> do
-              logInfo $ (T.pack $ "Action from " ++ label ++ ": " ++ show act)
+              syslog Debug $ "Action from " ++ label ++ ": " ++ show act
               agentAction act ah
             Left e -> do
-              logInfo $
-                (T.pack $
+              syslog Debug $
                 "Unrecognized message from " ++ label ++ ": " ++
-                BL.unpack msg ++ " (" ++ e ++ ")")
+                BL.unpack msg ++ " (" ++ e ++ ")"
               sendTextData conn $ encode $
                 Map.fromList [("errorText" :: String, e)]
     _ -> rejectRequest pending "Malformed extension number"
