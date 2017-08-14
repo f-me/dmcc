@@ -10,9 +10,7 @@
 {-# LANGUAGE TupleSections #-}
 
 {-|
-
 DMCC session handling.
-
 -}
 
 module DMCC.Session
@@ -20,7 +18,6 @@ module DMCC.Session
   , ConnectionType(..)
   , startSession
   , stopSession
-  , defaultLoggingOptions
   , defaultSessionOptions
 
   , DMCCError(..)
@@ -34,16 +31,16 @@ where
 
 import           DMCC.Prelude
 
-import           Control.Arrow hiding (first)
+import           Control.Arrow()
 import           Control.Monad.Logger
 
 import           Data.ByteString (ByteString)
 import qualified Data.Map.Strict as Map
-import           Data.Maybe
+import           Data.Maybe()
 import qualified Data.Set as Set
 import qualified Data.IntMap.Strict as IntMap
 import           Data.Text as T (Text, empty)
-import           Data.Typeable
+import           Data.Typeable()
 
 import           System.IO
 import           System.IO.Streams (InputStream,
@@ -83,7 +80,7 @@ data DMCCHandle = DMCCHandle
   -- ^ AVAYA server socket streams and connection cleanup action.
   , dmccSession :: TMVar (Text, Int)
   -- ^ DMCC session ID and duration.
-  , reconnect :: forall m. MonadCatchLoggerIO m => m ()
+  , reconnect :: forall m. (MonadBase IO m, MonadCatchLoggerIO m, MonadBaseControl IO m) => m ()
   -- ^ Reconnect to AVAYA server, changing socket streams, cleanup
   -- action and session.
   , pingThread :: ThreadId
@@ -135,7 +132,7 @@ defaultSessionOptions :: SessionOptions
 defaultSessionOptions = SessionOptions 1 120 24 5
 
 
-startSession :: (MonadBase IO m, MonadCatchLoggerIO m)
+startSession :: (MonadBase IO m, MonadCatchLoggerIO m, MonadBaseControl IO m, MonadLoggerIO IO)
              => (String, PortNumber)
              -- ^ Host and port of AES server.
              -> ConnectionType
@@ -161,10 +158,10 @@ startSession (host, port) ct user pass whUrl sopts = do
 
   let
     -- Connect to the server, produce I/O streams and a cleanup action
-    connect :: MonadCatchLoggerIO m => m ConnectionData
+    connect :: (MonadBase IO m, MonadCatchLoggerIO m) => m ConnectionData
     connect = connect1 (connectionRetryAttempts sopts)
       where
-        connectExHandler :: (Exception e, Show e, MonadCatchLoggerIO m) =>
+        connectExHandler :: (Exception e, Show e, MonadCatchLoggerIO m, MonadBase IO m) =>
                             Int -> e -> m ConnectionData
         connectExHandler attempts e = do
           logErrorN ("Connection failed: " <> tshow e)
@@ -196,7 +193,7 @@ startSession (host, port) ct user pass whUrl sopts = do
               return (is, os, cl)
 
     -- Start new DMCC session
-    startDMCCSession :: MonadCatchLoggerIO m
+    startDMCCSession :: (MonadBase IO m, MonadCatchLoggerIO m, MonadBaseControl IO m)
                      => Maybe Text
                      -- ^ Previous session ID (we attempt to recover
                      -- when this is given).
@@ -258,7 +255,7 @@ startSession (host, port) ct user pass whUrl sopts = do
     -- Restart I/O and DMCC session. This routine returns when new I/O
     -- streams become available (starting DMCC session requires
     -- response reader thread to be functional).
-    reconnect :: MonadCatchLoggerIO m => m ()
+    reconnect :: (MonadBaseControl IO m, MonadBase IO m, MonadCatchLoggerIO m) => m ()
     reconnect = do
       logWarnN "Attempting reconnection"
       -- Only one reconnection at a time
@@ -367,7 +364,7 @@ startSession (host, port) ct user pass whUrl sopts = do
   wh <- case whUrl of
           Just url -> do
             mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
-            req <- HTTP.parseUrl url
+            req <- HTTP.parseUrlThrow url
             return $ Just (req, mgr)
           Nothing -> return Nothing
 
@@ -383,7 +380,7 @@ startSession (host, port) ct user pass whUrl sopts = do
 
 
 -- | TODO Agent releasing notice
-stopSession :: (MonadBase IO m, MonadCatchLoggerIO m) => Session -> m ()
+stopSession :: (MonadBase IO m, MonadCatchLoggerIO m, MonadBaseControl IO m) => Session -> m ()
 stopSession as@Session{..} = do
   -- Release all agents
   ags <- readTVarIO agents
@@ -414,7 +411,7 @@ stopSession as@Session{..} = do
 -- Write errors are made explicit here because 'sendRequestSync' is
 -- called from multiple locations, making it tedious to install the
 -- reconnection handler everywhere.
-sendRequestSync :: MonadCatchLoggerIO m
+sendRequestSync :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
                 => DMCCHandle
                 -> Maybe AgentId
                 -- ^ Push erroneous responses to this agent's event
@@ -480,7 +477,7 @@ sendRequestSyncRaw connection re invoke srs ar !rq = do
 
 
 -- | Like 'sendRequestAsync', but do not wait for a result.
-sendRequestAsync :: MonadCatchLoggerIO m
+sendRequestAsync :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
                  => DMCCHandle
                  -> Maybe AgentId
                  -- ^ Push erroneous responses to this agent's event
