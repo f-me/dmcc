@@ -61,13 +61,13 @@ data Config =
   }
   deriving Show
 
-instance Monad IO => MonadLogger IO where
-  monadLoggerLog _ _ _ = pure $ pure ()
+instance MonadLogger IO where
+  monadLoggerLog _ _ _ = return $ return ()
 
-instance MonadLogger IO => MonadLoggerIO IO where
+instance MonadLoggerIO IO where
   askLoggerIO = return monadLoggerLog
 
-main :: (MonadLogger IO, MonadLoggerIO IO) => IO ()
+main :: (MonadLoggerIO IO, MonadLogger IO) => IO ()
 main = getArgs >>= \case
   [config] -> withSyslog "dmcc-ws" [LogPID] User $ do
     this <- myThreadId
