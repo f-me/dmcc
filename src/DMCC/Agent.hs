@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 {-|
 
@@ -19,24 +20,24 @@ import           Control.Lens
 import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
+import           Control.Monad.Logger
 
 import           Data.Aeson as A
 import           Data.Aeson.TH
 import           Data.CaseInsensitive (original)
 import           Data.Data
 import qualified Data.Map.Strict as Map
+import           Data.Monoid
 import qualified Data.Set as Set
-import           Data.Text (Text, unpack)
+import           Data.Text (Text, unpack, pack)
 import           Data.Time.Clock
 
 import qualified Network.HTTP.Client as HTTP
 import           Network.HTTP.Client (httpNoBody, method, requestBody)
 
-import qualified System.Posix.Syslog as Syslog
-
 import           DMCC.Session
 import           DMCC.Types
-import           DMCC.Util
+import           DMCC.Util()
 import qualified DMCC.XML.Request as Rq
 import qualified DMCC.XML.Response as Rs
 
@@ -198,14 +199,13 @@ releaseAgentLock (AgentHandle (aid, as)) =
 -- DMCC API. If the agent has already been registered, return the old
 -- entry (it's safe to call this function with the same arguments
 -- multiple times).
-controlAgent :: SwitchName
+controlAgent :: (MonadLoggerIO IO) => SwitchName
              -> Extension
              -> Session
              -> IO (Either AgentError AgentHandle)
 controlAgent switch ext as = do
   let aid = AgentId (switch, ext)
       ah  = AgentHandle (aid, as)
-      lopts = loggingOptions $ dmccHandle as
   -- Check if agent already exists
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)
@@ -315,7 +315,7 @@ controlAgent switch ext as = do
                         return $ Just newSnapshot
                 case (ns, webHook as) of
                   (Just ns', Just connData) ->
-                    sendWH connData lopts aid (StateChange ns')
+                    sendWH connData aid (StateChange ns')
                   _ -> return ()
               -- Ignore state errors
               _ -> return ()
@@ -340,7 +340,8 @@ controlAgent switch ext as = do
 -- | Translate agent actions into actual DMCC API requests.
 --
 -- TODO Allow agents to control only own calls.
-processAgentAction :: AgentId
+processAgentAction :: (MonadLoggerIO IO) =>
+                      AgentId
                    -> DeviceId
                    -> TVar AgentSnapshot
                    -> Session
@@ -423,7 +424,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
 
 -- | Process DMCC API events/errors for this agent to change its snapshot
 -- and broadcast events further.
-processAgentEvent :: AgentId
+processAgentEvent :: (MonadLoggerIO IO) => AgentId
                   -> DeviceId
                   -> TVar AgentSnapshot
                   -> TChan AgentEvent
@@ -432,7 +433,6 @@ processAgentEvent :: AgentId
                   -> IO ()
 processAgentEvent aid device snapshot eventChan as rs = do
   let
-    lopts = loggingOptions $ dmccHandle as
     -- | Atomically modify one of the calls.
     callOperation :: CallId
                   -- ^ CallId to find in calls map
@@ -484,7 +484,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
       atomically $ writeTChan eventChan $ TelephonyEvent ev s
       case webHook as of
         Just connData ->
-          sendWH connData lopts aid (TelephonyEvent ev updSnapshot')
+          sendWH connData aid (TelephonyEvent ev updSnapshot')
         _ ->
           return ()
 
@@ -572,7 +572,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
       -- Call webhook if necessary
       case (webHook as, report) of
         (Just connData, True) ->
-          sendWH connData lopts aid (TelephonyEvent ev updSnapshot)
+          sendWH connData aid (TelephonyEvent ev updSnapshot)
         _ -> return ()
     -- All other responses cannot arrive to an agent
     _ -> return ()
@@ -580,24 +580,24 @@ processAgentEvent aid device snapshot eventChan as rs = do
 
 -- | Send agent event data to a web hook endpoint, ignoring possible
 -- exceptions.
-sendWH :: MonadLoggerIO m
+sendWH :: MonadLoggerIO IO
        => (HTTP.Request, HTTP.Manager)
        -> AgentId
        -> AgentEvent
-       -> m ()
+       -> IO ()
 sendWH (req, mgr) aid payload =
   handle (\(e :: HTTP.HttpException) ->
-            logErrorN $
-            "Webhook error for agent " <> tshow aid <>
-            ", event " <> tshow payload <> ": " <>
-            tshow e) $
+            logErrorN . pack $
+            "Webhook error for agent " <> show aid <>
+             ", event " <> show payload <> ": " <>
+            show e) $
   void $ httpNoBody req{requestBody = rqBody, method = "POST"} mgr
   where
     rqBody = HTTP.RequestBodyLBS $ A.encode $ WHEvent aid payload
 
 
 -- | Forget about an agent, releasing his device and monitors.
-releaseAgent :: AgentHandle -> IO ()
+releaseAgent :: MonadLoggerIO IO => AgentHandle -> IO ()
 releaseAgent ah@(AgentHandle (aid, as)) = do
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)
