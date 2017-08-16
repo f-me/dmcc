@@ -36,7 +36,6 @@ import           Control.Monad.Logger
 
 import           Data.ByteString (ByteString)
 import qualified Data.Map.Strict as Map
-import           Data.Maybe()
 import qualified Data.Set as Set
 import qualified Data.IntMap.Strict as IntMap
 import           Data.Text as T (Text, empty)
@@ -380,7 +379,7 @@ startSession (host, port) ct user pass whUrl sopts = do
 
 
 -- | TODO Agent releasing notice
-stopSession :: (MonadBase IO m, MonadCatchLoggerIO m, MonadBaseControl IO m) => Session -> m ()
+stopSession :: (MonadLoggerIO IO, MonadBase IO m, MonadCatchLoggerIO m, MonadBaseControl IO m) => Session -> m ()
 stopSession as@Session{..} = do
   -- Release all agents
   ags <- readTVarIO agents

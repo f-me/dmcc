@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-|
 
@@ -39,6 +38,7 @@ import           Text.Printf
 
 import           Paths_dmcc
 import           DMCC
+import           DMCC.Prelude()
 
 
 data Config =
@@ -61,13 +61,7 @@ data Config =
   }
   deriving Show
 
-instance MonadLogger IO where
-  monadLoggerLog _ _ _ = return $ return ()
-
-instance MonadLoggerIO IO where
-  askLoggerIO = return monadLoggerLog
-
-main :: (MonadLoggerIO IO, MonadLogger IO) => IO ()
+main :: IO ()
 main = getArgs >>= \case
   [config] -> withSyslog "dmcc-ws" [LogPID] User $ do
     this <- myThreadId
@@ -82,7 +76,7 @@ main = getArgs >>= \case
 
 
 -- | Read config and actually start the server
-realMain :: MonadLoggerIO IO => FilePath -> IO ()
+realMain :: FilePath -> IO ()
 realMain config = do
   c <- Cfg.load [Cfg.Required config]
   cfg@Config{..} <- Config
@@ -128,7 +122,7 @@ type AgentMap = TMVar (Map.Map AgentHandle Int)
 
 -- | Decrement reference counter for an agent. If no references left,
 -- release control over agent. Return how many references are left.
-releaseAgentRef :: (MonadLogger IO, MonadLoggerIO IO) => AgentHandle -> AgentMap -> IO Int
+releaseAgentRef :: AgentHandle -> AgentMap -> IO Int
 releaseAgentRef ah refs = do
   r <- atomically $ takeTMVar refs
   flip onException (atomically $ putTMVar refs r) $
@@ -138,14 +132,14 @@ releaseAgentRef ah refs = do
           if cnt > 1
           then return $ Map.insert ah (cnt - 1) r
           else releaseAgent ah >>
-               CS.logInfo (T.pack $ "Agent " ++ show ah ++ " is no longer controlled") >>
+               CS.logError (T.pack $ "Agent " ++ show ah ++ " is no longer controlled") >>
                return (Map.delete ah r)
         atomically $ putTMVar refs newR
         return $ cnt - 1
       Nothing -> error $ "Releasing unknown agent " ++ show ah
 
 
-avayaApplication :: (MonadLoggerIO IO, MonadLogger IO) => Config
+avayaApplication :: Config
                  -> Session
                  -- ^ DMCC session.
                  -> AgentMap
@@ -155,7 +149,7 @@ avayaApplication Config{..} as refs pending = do
   let rq = pendingRequest pending
       pathArg = map (fmap fst . B.readInt) $ B.split '/' $ requestPath rq
       refReport ext cnt =
-        CS.logInfo (T.pack $ show ext ++ " has " ++ show cnt ++ " references")
+        CS.logError (T.pack $ show ext ++ " has " ++ show cnt ++ " references")
   case pathArg of
     [Nothing, Just ext] -> do
       -- A readable label for this connection for debugging purposes
@@ -164,26 +158,26 @@ avayaApplication Config{..} as refs pending = do
           -- Assume that all agents are on the same switch
           ext' = Extension $ T.pack $ show ext
       conn <- acceptRequest pending
-      CS.logInfo (T.pack $ "New websocket opened for " ++ label)
+      CS.logError (T.pack $ "New websocket opened for " ++ label)
       -- Create a new agent reference, possibly establishing control
       -- over the agent
       r <- atomically $ takeTMVar refs
       let initialHandler = do
-            CS.logInfo (T.pack $ "Exception when plugging " ++ label)
+            CS.logError (T.pack $ "Exception when plugging " ++ label)
             atomically $ putTMVar refs r
-            CS.logInfo (T.pack $ "Restored agent references map to " ++ show r)
+            CS.logError (T.pack $ "Restored agent references map to " ++ show r)
       (ah, evThread) <- (`onException` initialHandler) $ do
         cRsp <- controlAgent switchName ext' as
         ah <- case cRsp of
                 Right ah' -> return ah'
                 Left err -> do
                   sendTextData conn $ encode $ RequestError $ show err
-                  CS.logInfo (T.pack $ "Could not control agent for " ++ label ++ ": " ++ show err)
+                  CS.logError (T.pack $ "Could not control agent for " ++ label ++ ": " ++ show err)
                   throwIO err
         -- Increment reference counter
         let oldCount = fromMaybe 0 $ Map.lookup ah r
         atomically $ putTMVar refs (Map.insert ah (oldCount + 1) r)
-        CS.logInfo (T.pack $ "Controlling agent " ++ show ah ++ " from " ++ label)
+        CS.logError (T.pack $ "Controlling agent " ++ show ah ++ " from " ++ label)
         refReport ext' (oldCount + 1)
         -- Agent events loop
         evThread <- handleEvents ah
