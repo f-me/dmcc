@@ -38,6 +38,7 @@ import           Network.HTTP.Client (httpNoBody, method, requestBody)
 import           DMCC.Session
 import           DMCC.Types
 import           DMCC.Util()
+import           DMCC.Prelude()
 import qualified DMCC.XML.Request as Rq
 import qualified DMCC.XML.Response as Rs
 
@@ -199,7 +200,7 @@ releaseAgentLock (AgentHandle (aid, as)) =
 -- DMCC API. If the agent has already been registered, return the old
 -- entry (it's safe to call this function with the same arguments
 -- multiple times).
-controlAgent :: (MonadLoggerIO IO) => SwitchName
+controlAgent :: SwitchName
              -> Extension
              -> Session
              -> IO (Either AgentError AgentHandle)
@@ -340,8 +341,7 @@ controlAgent switch ext as = do
 -- | Translate agent actions into actual DMCC API requests.
 --
 -- TODO Allow agents to control only own calls.
-processAgentAction :: (MonadLoggerIO IO) =>
-                      AgentId
+processAgentAction :: AgentId
                    -> DeviceId
                    -> TVar AgentSnapshot
                    -> Session
@@ -424,7 +424,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
 
 -- | Process DMCC API events/errors for this agent to change its snapshot
 -- and broadcast events further.
-processAgentEvent :: (MonadLoggerIO IO) => AgentId
+processAgentEvent :: AgentId
                   -> DeviceId
                   -> TVar AgentSnapshot
                   -> TChan AgentEvent
@@ -580,8 +580,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
 
 -- | Send agent event data to a web hook endpoint, ignoring possible
 -- exceptions.
-sendWH :: MonadLoggerIO IO
-       => (HTTP.Request, HTTP.Manager)
+sendWH :: (HTTP.Request, HTTP.Manager)
        -> AgentId
        -> AgentEvent
        -> IO ()
@@ -597,7 +596,7 @@ sendWH (req, mgr) aid payload =
 
 
 -- | Forget about an agent, releasing his device and monitors.
-releaseAgent :: MonadLoggerIO IO => AgentHandle -> IO ()
+releaseAgent :: AgentHandle -> IO ()
 releaseAgent ah@(AgentHandle (aid, as)) = do
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)

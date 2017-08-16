@@ -22,4 +22,10 @@ import ClassyPrelude hiding ( atomically
 import Control.Concurrent.STM.Lifted
 import Control.Monad.Logger
 
+instance MonadLogger IO where
+  monadLoggerLog _ _ _ = return $ return ()
+
+instance MonadLoggerIO IO where
+  askLoggerIO = return monadLoggerLog
+
 type MonadCatchLoggerIO m = (MonadCatch m, MonadLoggerIO m)
