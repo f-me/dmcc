@@ -79,7 +79,7 @@ data DMCCHandle = DMCCHandle
   -- ^ AVAYA server socket streams and connection cleanup action.
   , dmccSession :: TMVar (Text, Int)
   -- ^ DMCC session ID and duration.
-  , reconnect :: forall m. (MonadBase IO m, MonadCatchLoggerIO m, MonadBaseControl IO m) => m ()
+  , reconnect :: forall m. (MonadCatchLoggerIO m, MonadBaseControl IO m) => m ()
   -- ^ Reconnect to AVAYA server, changing socket streams, cleanup
   -- action and session.
   , pingThread :: ThreadId
@@ -131,7 +131,7 @@ defaultSessionOptions :: SessionOptions
 defaultSessionOptions = SessionOptions 1 120 24 5
 
 
-startSession :: (MonadBase IO m, MonadCatchLoggerIO m, MonadBaseControl IO m, MonadLoggerIO IO)
+startSession :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
              => (String, PortNumber)
              -- ^ Host and port of AES server.
              -> ConnectionType
@@ -192,7 +192,7 @@ startSession (host, port) ct user pass whUrl sopts = do
               return (is, os, cl)
 
     -- Start new DMCC session
-    startDMCCSession :: (MonadBase IO m, MonadCatchLoggerIO m, MonadBaseControl IO m)
+    startDMCCSession :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
                      => Maybe Text
                      -- ^ Previous session ID (we attempt to recover
                      -- when this is given).
@@ -254,7 +254,7 @@ startSession (host, port) ct user pass whUrl sopts = do
     -- Restart I/O and DMCC session. This routine returns when new I/O
     -- streams become available (starting DMCC session requires
     -- response reader thread to be functional).
-    reconnect :: (MonadBaseControl IO m, MonadBase IO m, MonadCatchLoggerIO m) => m ()
+    reconnect :: (MonadBaseControl IO m, MonadCatchLoggerIO m) => m ()
     reconnect = do
       logWarnN "Attempting reconnection"
       -- Only one reconnection at a time
@@ -379,7 +379,7 @@ startSession (host, port) ct user pass whUrl sopts = do
 
 
 -- | TODO Agent releasing notice
-stopSession :: (MonadLoggerIO IO, MonadBase IO m, MonadCatchLoggerIO m, MonadBaseControl IO m) => Session -> m ()
+stopSession :: (MonadCatchLoggerIO m, MonadBaseControl IO m) => Session -> m ()
 stopSession as@Session{..} = do
   -- Release all agents
   ags <- readTVarIO agents
