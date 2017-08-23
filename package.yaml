@@ -29,6 +29,7 @@ dependencies:
   - classy-prelude
   - containers
   - monad-logger
+  - hsyslog
   - stm
   - stm-lifted
   - text
