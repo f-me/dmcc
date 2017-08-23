@@ -6,7 +6,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE TupleSections #-}
 
 {-|
@@ -294,7 +293,7 @@ startSession (host, port) ct user pass whUrl sopts = do
   readThread <-
     fork $ forever $ liftIO $ do
       (istream, _, _) <- atomically $ readTMVar conn
-      handleNetwork readExHandler $
+      runStdoutLoggingT . handleNetwork readExHandler $
         Raw.readResponse istream >>=
         atomically . writeTChan msgChan . first DMCCRsp
 
@@ -356,8 +355,8 @@ startSession (host, port) ct user pass whUrl sopts = do
           sopts
 
   -- Start the session
-  (liftIO connect) >>= atomically . putTMVar conn
-  (newSession, actualProtocolVersion) <- liftIO $ startDMCCSession Nothing
+  runStdoutLoggingT connect >>= atomically . putTMVar conn
+  (newSession, actualProtocolVersion) <- runStdoutLoggingT $ startDMCCSession Nothing
   atomically $ putTMVar sess newSession
 
   wh <- case whUrl of
@@ -431,7 +430,7 @@ sendRequestSync DMCCHandle{..} aid rq = do
     rq
 
 
-sendRequestSyncRaw :: MonadCatchLoggerIO m
+sendRequestSyncRaw :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
                    => TMVar ConnectionData
                    -- ^ Block until this connection becomes available.
                    -> m ()
