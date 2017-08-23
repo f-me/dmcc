@@ -227,7 +227,7 @@ controlAgent switch ext as = do
         -- attached to the agent (Nothing) as it has not been inserted
         -- in the agent map of the session yet).
         gdiRsp <-
-          sendRequestSync (dmccHandle as) Nothing
+          runStdoutLoggingT . sendRequestSync (dmccHandle as) Nothing $
           Rq.GetDeviceId
           { switchName = switch
           , extension = ext
@@ -243,7 +243,7 @@ controlAgent switch ext as = do
               throwIO $ DeviceError "Bad GetDeviceId response"
 
         msrRsp <-
-          sendRequestSync (dmccHandle as) Nothing
+          runStdoutLoggingT . sendRequestSync (dmccHandle as) Nothing $
           Rq.MonitorStart
           { acceptedProtocol = protocolVersion as
           , monitorRq = Rq.Device device
@@ -282,7 +282,7 @@ controlAgent switch ext as = do
         -- the agent state.
 
         -- Find out initial agent state
-        gsRsp' <- sendRequestSync (dmccHandle as) (Just aid)
+        gsRsp' <- runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
               Rq.GetAgentState
               { device = device
               , acceptedProtocol = protocolVersion as
@@ -298,7 +298,7 @@ controlAgent switch ext as = do
         -- State polling thread
         stateThread <-
           forkIO $ forever $ do
-            gsRsp <- sendRequestSync (dmccHandle as) (Just aid)
+            gsRsp <- runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
               Rq.GetAgentState
               { device = device
               , acceptedProtocol = protocolVersion as
@@ -349,7 +349,7 @@ processAgentAction :: AgentId
                    -> IO ()
 processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
   let
-    arq = sendRequestAsync (dmccHandle as) (Just aid)
+    arq = runStdoutLoggingT . sendRequestAsync (dmccHandle as) (Just aid)
     simpleRequest rq arg =
       arq $ rq device arg (protocolVersion as)
     simpleRequest2 rq arg1 arg2 =
@@ -360,7 +360,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
     -- to the agent.
     MakeCall toNumber -> do
       rspDest <-
-        sendRequestSync (dmccHandle as) (Just aid)
+        runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
         Rq.GetThirdPartyDeviceId
         -- Assume destination switch is the same as agent's
         { switchName = switch
@@ -368,7 +368,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
         }
       case rspDest of
         Just (Rs.GetThirdPartyDeviceIdResponse destDev) -> do
-          mcr <- sendRequestSync (dmccHandle as) (Just aid) $
+          mcr <- runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
                  Rq.MakeCall
                  device
                  destDev
@@ -386,7 +386,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
     HoldCall callId     -> simpleRequest Rq.HoldCall callId
     RetrieveCall callId -> simpleRequest Rq.RetrieveCall callId
     BargeIn activeCall m -> do
-      sscR <- sendRequestSync (dmccHandle as) (Just aid) $
+      sscR <- runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
               Rq.SingleStepConferenceCall
               device
               activeCall
@@ -414,7 +414,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
     -- Synchronous to avoid missed digits if actions queue up
     SendDigits{..} ->
       void $
-      sendRequestSync (dmccHandle as) (Just aid) $
+      runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
       Rq.GenerateDigits digits device callId (protocolVersion as)
     SetState newState -> do
       cs <- atomically $ readTVar snapshot
@@ -468,7 +468,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
           True -> return s
           False -> do
             Just gcldr <-
-              sendRequestSync (dmccHandle as) (Just aid) $
+              runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
               Rq.GetCallLinkageData device callId (protocolVersion as)
             case gcldr of
               Rs.GetCallLinkageDataResponse ucid ->
@@ -586,7 +586,7 @@ sendWH :: (HTTP.Request, HTTP.Manager)
        -> IO ()
 sendWH (req, mgr) aid payload =
   handle (\(e :: HTTP.HttpException) ->
-            logErrorN . pack $
+            runStdoutLoggingT . logErrorN . pack $
             "Webhook error for agent " <> show aid <>
              ", event " <> show payload <> ": " <>
             show e) $
@@ -618,12 +618,12 @@ releaseAgent ah@(AgentHandle (aid, as)) = do
         killThread (actionThread ag)
         killThread (rspThread ag)
         killThread (stateThread ag)
-        sendRequestSync (dmccHandle as) (Just aid)
+        runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
           Rq.MonitorStop
           { acceptedProtocol = protocolVersion as
           , monitorCrossRefID = monitorId ag
           }
-        sendRequestSync (dmccHandle as) (Just aid)
+        runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
           Rq.ReleaseDeviceId{device = deviceId ag}
         atomically $ modifyTVar' (agents as) (Map.delete aid)
         releaseAgentLock ah
