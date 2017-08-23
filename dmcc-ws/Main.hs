@@ -68,7 +68,7 @@ main = getArgs >>= \case
     -- Terminate on SIGTERM
     _ <- installHandler
          sigTERM
-         (Catch (CS.logInfo (T.pack $ "Termination signal received") >>
+         (Catch ((runStdoutLoggingT $ CS.logInfo (T.pack $ "Termination signal received")) >>
                  throwTo this ExitSuccess))
          Nothing
     realMain config
@@ -97,7 +97,7 @@ realMain config = do
       <*> Cfg.require c "connection-retry-delay"
 
   bracket
-    (CS.logInfo (T.pack $ "Running dmcc-" ++ showVersion version) >>
+    (runStdoutLoggingT $ CS.logInfo (T.pack $ "Running dmcc-" ++ showVersion version) >>
      CS.logInfo (T.pack $ "Starting session using " ++ show cfg) >>
      startSession (aesAddr, fromIntegral aesPort)
      (if aesTLS then TLS caDir else Plain)
@@ -109,10 +109,10 @@ realMain config = do
                           , connectionRetryDelay = connDelay
                           })
     (\s ->
-       CS.logInfo (T.pack $ "Stopping " ++ show s) >>
+       runStdoutLoggingT $ CS.logInfo (T.pack $ "Stopping " ++ show s) >>
        stopSession s)
     (\s ->
-       CS.logInfo (T.pack $ "Running server for " ++ show s) >>
+       (runStdoutLoggingT $ CS.logInfo (T.pack $ "Running server for " ++ show s)) >>
        newTMVarIO Map.empty >>=
        \refs -> runServer "0.0.0.0" listenPort (avayaApplication cfg s refs))
 
@@ -132,7 +132,7 @@ releaseAgentRef ah refs = do
           if cnt > 1
           then return $ Map.insert ah (cnt - 1) r
           else releaseAgent ah >>
-               CS.logError (T.pack $ "Agent " ++ show ah ++ " is no longer controlled") >>
+               (runStdoutLoggingT $ CS.logError (T.pack $ "Agent " ++ show ah ++ " is no longer controlled")) >>
                return (Map.delete ah r)
         atomically $ putTMVar refs newR
         return $ cnt - 1
@@ -158,43 +158,43 @@ avayaApplication Config{..} as refs pending = do
           -- Assume that all agents are on the same switch
           ext' = Extension $ T.pack $ show ext
       conn <- acceptRequest pending
-      CS.logError (T.pack $ "New websocket opened for " ++ label)
+      runStdoutLoggingT $ CS.logError (T.pack $ "New websocket opened for " ++ label)
       -- Create a new agent reference, possibly establishing control
       -- over the agent
       r <- atomically $ takeTMVar refs
       let initialHandler = do
-            CS.logError (T.pack $ "Exception when plugging " ++ label)
+            runStdoutLoggingT $ CS.logError (T.pack $ "Exception when plugging " ++ label)
             atomically $ putTMVar refs r
-            CS.logError (T.pack $ "Restored agent references map to " ++ show r)
+            runStdoutLoggingT $ CS.logError (T.pack $ "Restored agent references map to " ++ show r)
       (ah, evThread) <- (`onException` initialHandler) $ do
         cRsp <- controlAgent switchName ext' as
         ah <- case cRsp of
                 Right ah' -> return ah'
                 Left err -> do
                   sendTextData conn $ encode $ RequestError $ show err
-                  CS.logError (T.pack $ "Could not control agent for " ++ label ++ ": " ++ show err)
+                  runStdoutLoggingT $ CS.logError (T.pack $ "Could not control agent for " ++ label ++ ": " ++ show err)
                   throwIO err
         -- Increment reference counter
         let oldCount = fromMaybe 0 $ Map.lookup ah r
         atomically $ putTMVar refs (Map.insert ah (oldCount + 1) r)
-        CS.logError (T.pack $ "Controlling agent " ++ show ah ++ " from " ++ label)
-        refReport ext' (oldCount + 1)
+        runStdoutLoggingT $ CS.logError (T.pack $ "Controlling agent " ++ show ah ++ " from " ++ label)
+        runStdoutLoggingT $ refReport ext' (oldCount + 1)
         -- Agent events loop
         evThread <- handleEvents ah
           (\ev ->
              do
-               CS.logInfo (T.pack $ "Event for " ++ label ++ ": " ++ show ev)
+               runStdoutLoggingT $ CS.logInfo (T.pack $ "Event for " ++ label ++ ": " ++ show ev)
                sendTextData conn $ encode ev)
-        CS.logInfo (T.pack $ show evThread ++ " handles events for " ++ label)
+        runStdoutLoggingT $ CS.logInfo (T.pack $ show evThread ++ " handles events for " ++ label)
         return (ah, evThread)
 
       let disconnectionHandler = do
-            CS.logInfo (T.pack $ "Websocket closed for " ++ label)
+            runStdoutLoggingT $ CS.logInfo (T.pack $ "Websocket closed for " ++ label)
             killThread evThread
             threadDelay $ refDelay * 1000000
             -- Decrement reference counter when the connection dies or any
             -- other exception happens
-            releaseAgentRef ah refs >>= refReport ext'
+            releaseAgentRef ah refs >>= runStdoutLoggingT . refReport ext'
       handle (\(_ :: ConnectionException) -> disconnectionHandler) $ do
         s <- getAgentSnapshot ah
         sendTextData conn $ encode s
@@ -203,10 +203,10 @@ avayaApplication Config{..} as refs pending = do
           msg <- receiveData conn
           case eitherDecode msg of
             Right act -> do
-              CS.logInfo (T.pack $ "Action from " ++ label ++ ": " ++ show act)
+              runStdoutLoggingT $ CS.logInfo (T.pack $ "Action from " ++ label ++ ": " ++ show act)
               agentAction act ah
             Left e -> do
-              CS.logInfo (T.pack $ "Unrecognized message from " ++ label ++ ": " ++
+              runStdoutLoggingT $ CS.logInfo (T.pack $ "Unrecognized message from " ++ label ++ ": " ++
                 BL.unpack msg ++ " (" ++ e ++ ")")
               sendTextData conn $ encode $
                 Map.fromList [("errorText" :: String, e)]
