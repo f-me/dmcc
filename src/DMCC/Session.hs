@@ -430,7 +430,7 @@ sendRequestSync DMCCHandle{..} aid rq = do
     rq
 
 
-sendRequestSyncRaw :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
+sendRequestSyncRaw :: MonadCatchLoggerIO m
                    => TMVar ConnectionData
                    -- ^ Block until this connection becomes available.
                    -> m ()
