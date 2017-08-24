@@ -10,7 +10,6 @@ module DMCC
   , ConnectionType(..)
   , startSession
   , stopSession
-  , defaultLoggingOptions
   , defaultSessionOptions
 
   , AgentHandle

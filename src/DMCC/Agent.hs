@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 {-|
 
@@ -19,24 +20,25 @@ import           Control.Lens
 import           Control.Monad
 import           Control.Concurrent
 import           Control.Concurrent.STM
+import           Control.Monad.Logger
 
 import           Data.Aeson as A
 import           Data.Aeson.TH
 import           Data.CaseInsensitive (original)
 import           Data.Data
 import qualified Data.Map.Strict as Map
+import           Data.Monoid
 import qualified Data.Set as Set
-import           Data.Text (Text, unpack)
+import           Data.Text (Text, unpack, pack)
 import           Data.Time.Clock
 
 import qualified Network.HTTP.Client as HTTP
 import           Network.HTTP.Client (httpNoBody, method, requestBody)
 
-import qualified System.Posix.Syslog as Syslog
-
 import           DMCC.Session
 import           DMCC.Types
-import           DMCC.Util
+import           DMCC.Util()
+import           DMCC.Prelude()
 import qualified DMCC.XML.Request as Rq
 import qualified DMCC.XML.Response as Rs
 
@@ -205,7 +207,6 @@ controlAgent :: SwitchName
 controlAgent switch ext as = do
   let aid = AgentId (switch, ext)
       ah  = AgentHandle (aid, as)
-      lopts = loggingOptions $ dmccHandle as
   -- Check if agent already exists
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)
@@ -226,7 +227,7 @@ controlAgent switch ext as = do
         -- attached to the agent (Nothing) as it has not been inserted
         -- in the agent map of the session yet).
         gdiRsp <-
-          sendRequestSync (dmccHandle as) Nothing
+          runStdoutLoggingT . sendRequestSync (dmccHandle as) Nothing $
           Rq.GetDeviceId
           { switchName = switch
           , extension = ext
@@ -242,7 +243,7 @@ controlAgent switch ext as = do
               throwIO $ DeviceError "Bad GetDeviceId response"
 
         msrRsp <-
-          sendRequestSync (dmccHandle as) Nothing
+          runStdoutLoggingT . sendRequestSync (dmccHandle as) Nothing $
           Rq.MonitorStart
           { acceptedProtocol = protocolVersion as
           , monitorRq = Rq.Device device
@@ -281,7 +282,7 @@ controlAgent switch ext as = do
         -- the agent state.
 
         -- Find out initial agent state
-        gsRsp' <- sendRequestSync (dmccHandle as) (Just aid)
+        gsRsp' <- runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
               Rq.GetAgentState
               { device = device
               , acceptedProtocol = protocolVersion as
@@ -297,7 +298,7 @@ controlAgent switch ext as = do
         -- State polling thread
         stateThread <-
           forkIO $ forever $ do
-            gsRsp <- sendRequestSync (dmccHandle as) (Just aid)
+            gsRsp <- runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
               Rq.GetAgentState
               { device = device
               , acceptedProtocol = protocolVersion as
@@ -315,7 +316,7 @@ controlAgent switch ext as = do
                         return $ Just newSnapshot
                 case (ns, webHook as) of
                   (Just ns', Just connData) ->
-                    sendWH connData lopts aid (StateChange ns')
+                    sendWH connData aid (StateChange ns')
                   _ -> return ()
               -- Ignore state errors
               _ -> return ()
@@ -348,7 +349,7 @@ processAgentAction :: AgentId
                    -> IO ()
 processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
   let
-    arq = sendRequestAsync (dmccHandle as) (Just aid)
+    arq = runStdoutLoggingT . sendRequestAsync (dmccHandle as) (Just aid)
     simpleRequest rq arg =
       arq $ rq device arg (protocolVersion as)
     simpleRequest2 rq arg1 arg2 =
@@ -359,7 +360,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
     -- to the agent.
     MakeCall toNumber -> do
       rspDest <-
-        sendRequestSync (dmccHandle as) (Just aid)
+        runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
         Rq.GetThirdPartyDeviceId
         -- Assume destination switch is the same as agent's
         { switchName = switch
@@ -367,7 +368,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
         }
       case rspDest of
         Just (Rs.GetThirdPartyDeviceIdResponse destDev) -> do
-          mcr <- sendRequestSync (dmccHandle as) (Just aid) $
+          mcr <- runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
                  Rq.MakeCall
                  device
                  destDev
@@ -385,7 +386,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
     HoldCall callId     -> simpleRequest Rq.HoldCall callId
     RetrieveCall callId -> simpleRequest Rq.RetrieveCall callId
     BargeIn activeCall m -> do
-      sscR <- sendRequestSync (dmccHandle as) (Just aid) $
+      sscR <- runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
               Rq.SingleStepConferenceCall
               device
               activeCall
@@ -413,7 +414,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
     -- Synchronous to avoid missed digits if actions queue up
     SendDigits{..} ->
       void $
-      sendRequestSync (dmccHandle as) (Just aid) $
+      runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
       Rq.GenerateDigits digits device callId (protocolVersion as)
     SetState newState -> do
       cs <- atomically $ readTVar snapshot
@@ -432,7 +433,6 @@ processAgentEvent :: AgentId
                   -> IO ()
 processAgentEvent aid device snapshot eventChan as rs = do
   let
-    lopts = loggingOptions $ dmccHandle as
     -- | Atomically modify one of the calls.
     callOperation :: CallId
                   -- ^ CallId to find in calls map
@@ -468,7 +468,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
           True -> return s
           False -> do
             Just gcldr <-
-              sendRequestSync (dmccHandle as) (Just aid) $
+              runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
               Rq.GetCallLinkageData device callId (protocolVersion as)
             case gcldr of
               Rs.GetCallLinkageDataResponse ucid ->
@@ -484,7 +484,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
       atomically $ writeTChan eventChan $ TelephonyEvent ev s
       case webHook as of
         Just connData ->
-          sendWH connData lopts aid (TelephonyEvent ev updSnapshot')
+          sendWH connData aid (TelephonyEvent ev updSnapshot')
         _ ->
           return ()
 
@@ -572,7 +572,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
       -- Call webhook if necessary
       case (webHook as, report) of
         (Just connData, True) ->
-          sendWH connData lopts aid (TelephonyEvent ev updSnapshot)
+          sendWH connData aid (TelephonyEvent ev updSnapshot)
         _ -> return ()
     -- All other responses cannot arrive to an agent
     _ -> return ()
@@ -581,15 +581,14 @@ processAgentEvent aid device snapshot eventChan as rs = do
 -- | Send agent event data to a web hook endpoint, ignoring possible
 -- exceptions.
 sendWH :: (HTTP.Request, HTTP.Manager)
-       -> Maybe LoggingOptions
        -> AgentId
        -> AgentEvent
        -> IO ()
-sendWH (req, mgr) lopts aid payload =
+sendWH (req, mgr) aid payload =
   handle (\(e :: HTTP.HttpException) ->
-            maybeSyslog lopts Syslog.Error $
-            "Webhook error for agent " ++ show aid ++
-            ", event " ++ show payload ++ ": " ++
+            runStdoutLoggingT . logErrorN . pack $
+            "Webhook error for agent " <> show aid <>
+             ", event " <> show payload <> ": " <>
             show e) $
   void $ httpNoBody req{requestBody = rqBody, method = "POST"} mgr
   where
@@ -597,8 +596,7 @@ sendWH (req, mgr) lopts aid payload =
 
 
 -- | Forget about an agent, releasing his device and monitors.
-releaseAgent :: AgentHandle
-             -> IO ()
+releaseAgent :: AgentHandle -> IO ()
 releaseAgent ah@(AgentHandle (aid, as)) = do
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)
@@ -620,12 +618,12 @@ releaseAgent ah@(AgentHandle (aid, as)) = do
         killThread (actionThread ag)
         killThread (rspThread ag)
         killThread (stateThread ag)
-        sendRequestSync (dmccHandle as) (Just aid)
+        runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
           Rq.MonitorStop
           { acceptedProtocol = protocolVersion as
           , monitorCrossRefID = monitorId ag
           }
-        sendRequestSync (dmccHandle as) (Just aid)
+        runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
           Rq.ReleaseDeviceId{device = deviceId ag}
         atomically $ modifyTVar' (agents as) (Map.delete aid)
         releaseAgentLock ah
