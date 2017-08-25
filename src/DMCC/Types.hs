@@ -131,7 +131,7 @@ data ParticipationType = Active
 $(deriveJSON defaultOptions ''ParticipationType)
 
 
-data LoggingOptions = LoggingOptions
+newtype LoggingOptions = LoggingOptions
   { syslogIdent :: ByteString
   }
 
