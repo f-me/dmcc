@@ -210,13 +210,12 @@ controlAgent switch ext as = do
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)
     case Set.member aid locks of
-      True -> retry
-      False -> do
-        ags <- readTVar (agents as)
-        case Map.member aid ags of
-          True -> return $ Just aid
-          -- Prevent parallel operation on the same agent
-          False -> placeAgentLock ah >> return Nothing
+        True -> retry
+        False -> do ags <- readTVar (agents as)
+                    case Map.member aid ags of
+                        True -> return $ Just aid
+                        False -> placeAgentLock ah >> return Nothing
+        -- Prevent parallel operation on the same agent
 
   case prev of
     Just a -> return $ Right $ AgentHandle (a, as)
@@ -307,12 +306,12 @@ controlAgent switch ext as = do
                 ns <- atomically $ do
                   sn <- readTVar snapshot
                   case _state sn /= (agentState, reasonCode) of
-                    False -> return Nothing
-                    True -> do
-                      modifyTVar' snapshot (state .~ (agentState, reasonCode))
-                      readTVar snapshot >>= \newSnapshot -> do
-                        writeTChan eventChan $ StateChange newSnapshot
-                        return $ Just newSnapshot
+                      False -> return Nothing
+                      True -> do modifyTVar' snapshot (state .~ (agentState, reasonCode))
+                                 readTVar snapshot >>=
+                                   \ newSnapshot ->
+                                     do writeTChan eventChan $ StateChange newSnapshot
+                                        return $ Just newSnapshot
                 case (ns, webHook as) of
                   (Just ns', Just connData) ->
                     sendWH connData aid (StateChange ns')
@@ -462,24 +461,20 @@ processAgentEvent aid device snapshot eventChan as rs = do
     -- UCID.
     Rs.EventResponse _ ev@Rs.OriginatedEvent{..} -> do
       s <- readTVarIO snapshot
-      updSnapshot' <-
-        case Map.member callId (_calls s) of
-          True -> return s
-          False -> do
-            Just gcldr <-
-              runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
-              Rq.GetCallLinkageData device callId (protocolVersion as)
+      updSnapshot' <- (if Map.member callId (_calls s) then return s else
+        (do Just gcldr <- runStdoutLoggingT .
+                            sendRequestSync (dmccHandle as) (Just aid)
+                            $ Rq.GetCallLinkageData device callId (protocolVersion as)
             case gcldr of
-              Rs.GetCallLinkageDataResponse ucid ->
-                atomically $ do
-                  modifyTVar' snapshot (calls %~ Map.insert callId call)
-                  readTVar snapshot
-                  where
-                    call = Call Out ucid now [calledDevice] Nothing False False
-              _ -> do
-                atomically $ writeTChan eventChan $
-                  TelephonyEventError "Bad GetCallLinkageDataResponse"
-                return s
+                Rs.GetCallLinkageDataResponse ucid -> atomically $
+                                                        do modifyTVar' snapshot
+                                                             (calls %~ Map.insert callId call)
+                                                           readTVar snapshot
+                  where call = Call Out ucid now [calledDevice] Nothing False False
+                _ -> do atomically $
+                          writeTChan eventChan $
+                            TelephonyEventError "Bad GetCallLinkageDataResponse"
+                        return s))
       atomically $ writeTChan eventChan $ TelephonyEvent ev s
       case webHook as of
         Just connData ->
@@ -499,14 +494,12 @@ processAgentEvent aid device snapshot eventChan as rs = do
           -- New call
           Rs.DeliveredEvent{..} -> do
             s <- readTVar snapshot
-            case Map.member callId $ _calls s of
+            if Map.member callId $ _calls s then return False else
               -- DeliveredEvent arrives after OriginatedEvent for
               -- outgoing calls too, but we keep the original call
               -- information.
-              True -> return False
-              False -> do
-                modifyTVar' snapshot (calls %~ Map.insert callId call)
-                return True
+              (do modifyTVar' snapshot (calls %~ Map.insert callId call)
+                  return True)
             where
               (dir, interloc) = if callingDevice == device
                                 then (Out, calledDevice)
@@ -599,13 +592,11 @@ releaseAgent :: AgentHandle -> IO ()
 releaseAgent ah@(AgentHandle (aid, as)) = do
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)
-    case Set.member aid locks of
-      True -> retry
-      False -> do
-        ags <- readTVar (agents as)
-        case Map.lookup aid ags of
-          Just ag -> placeAgentLock ah >> return (Just ag)
-          Nothing -> return Nothing
+    if Set.member aid locks then retry else
+      (do ags <- readTVar (agents as)
+          case Map.lookup aid ags of
+               Just ag -> placeAgentLock ah >> return (Just ag)
+               Nothing -> return Nothing)
 
   case prev of
     Nothing -> throwIO $ UnknownAgent aid
