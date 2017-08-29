@@ -63,14 +63,14 @@ data Config =
 
 main :: IO ()
 main = getArgs >>= \case
-  [config] -> withSyslog "dmcc-ws" [LogPID] User $ do
+  [config] -> do
     this <- myThreadId
     -- Terminate on SIGTERM
     _ <- installHandler
          sigTERM
          (Catch ((runStdoutLoggingT $ CS.logInfo (T.pack $ "Termination signal received")) >>
                  throwTo this ExitSuccess))
-         Nothing
+          Nothing
     realMain config
   _ -> getProgName >>= \pn -> error $ "Usage: " ++ pn ++ " <path to config>"
 
@@ -109,10 +109,10 @@ realMain config = do
                           , connectionRetryDelay = connDelay
                           })
     (\s ->
-       runStdoutLoggingT $ CS.logInfo (T.pack $ "Stopping " ++ show s) >>
-       stopSession s)
+        runStdoutLoggingT $ CS.logInfo (T.pack $ "Stopping " ++ show s) >>
+        stopSession s)
     (\s ->
-       (runStdoutLoggingT $ CS.logInfo (T.pack $ "Running server for " ++ show s)) >>
+       ((runStdoutLoggingT . CS.logInfo . T.pack) ("Running server for " ++ show s)) >>
        newTMVarIO Map.empty >>=
        \refs -> runServer "0.0.0.0" listenPort (avayaApplication cfg s refs))
 
@@ -132,7 +132,7 @@ releaseAgentRef ah refs = do
           if cnt > 1
           then return $ Map.insert ah (cnt - 1) r
           else releaseAgent ah >>
-               (runStdoutLoggingT $ CS.logError (T.pack $ "Agent " ++ show ah ++ " is no longer controlled")) >>
+               (runStdoutLoggingT $ CS.logDebug (T.pack $ "Agent " ++ show ah ++ " is no longer controlled")) >>
                return (Map.delete ah r)
         atomically $ putTMVar refs newR
         return $ cnt - 1
