@@ -31,14 +31,12 @@ import           Network.WebSockets
 
 import           System.Environment
 import           System.Exit
-import           System.Posix.Syslog
 import           System.Posix.Signals
 import           System.Random
 import           Text.Printf
 
 import           Paths_dmcc
 import           DMCC
-import           DMCC.Prelude()
 
 
 data Config =
@@ -149,7 +147,7 @@ avayaApplication Config{..} as refs pending = do
   let rq = pendingRequest pending
       pathArg = map (fmap fst . B.readInt) $ B.split '/' $ requestPath rq
       refReport ext cnt =
-        CS.logError (T.pack $ show ext ++ " has " ++ show cnt ++ " references")
+        CS.logDebug (T.pack $ show ext ++ " has " ++ show cnt ++ " references")
   case pathArg of
     [Nothing, Just ext] -> do
       -- A readable label for this connection for debugging purposes
@@ -163,9 +161,9 @@ avayaApplication Config{..} as refs pending = do
       -- over the agent
       r <- atomically $ takeTMVar refs
       let initialHandler = do
-            runStdoutLoggingT $ CS.logError (T.pack $ "Exception when plugging " ++ label)
+            runStdoutLoggingT $ CS.logDebug (T.pack $ "Exception when plugging " ++ label)
             atomically $ putTMVar refs r
-            runStdoutLoggingT $ CS.logError (T.pack $ "Restored agent references map to " ++ show r)
+            runStdoutLoggingT $ CS.logDebug (T.pack $ "Restored agent references map to " ++ show r)
       (ah, evThread) <- (`onException` initialHandler) $ do
         cRsp <- controlAgent switchName ext' as
         ah <- case cRsp of
@@ -177,7 +175,7 @@ avayaApplication Config{..} as refs pending = do
         -- Increment reference counter
         let oldCount = fromMaybe 0 $ Map.lookup ah r
         atomically $ putTMVar refs (Map.insert ah (oldCount + 1) r)
-        runStdoutLoggingT $ CS.logError (T.pack $ "Controlling agent " ++ show ah ++ " from " ++ label)
+        runStdoutLoggingT $ CS.logDebug (T.pack $ "Controlling agent " ++ show ah ++ " from " ++ label)
         runStdoutLoggingT $ refReport ext' (oldCount + 1)
         -- Agent events loop
         evThread <- handleEvents ah
@@ -185,11 +183,11 @@ avayaApplication Config{..} as refs pending = do
              do
                runStdoutLoggingT $ CS.logInfo (T.pack $ "Event for " ++ label ++ ": " ++ show ev)
                sendTextData conn $ encode ev)
-        runStdoutLoggingT $ CS.logInfo (T.pack $ show evThread ++ " handles events for " ++ label)
+        runStdoutLoggingT $ CS.logDebug (T.pack $ show evThread ++ " handles events for " ++ label)
         return (ah, evThread)
 
       let disconnectionHandler = do
-            runStdoutLoggingT $ CS.logInfo (T.pack $ "Websocket closed for " ++ label)
+            runStdoutLoggingT $ CS.logDebug (T.pack $ "Websocket closed for " ++ label)
             killThread evThread
             threadDelay $ refDelay * 1000000
             -- Decrement reference counter when the connection dies or any
@@ -203,10 +201,10 @@ avayaApplication Config{..} as refs pending = do
           msg <- receiveData conn
           case eitherDecode msg of
             Right act -> do
-              runStdoutLoggingT $ CS.logInfo (T.pack $ "Action from " ++ label ++ ": " ++ show act)
+              runStdoutLoggingT $ CS.logDebug (T.pack $ "Action from " ++ label ++ ": " ++ show act)
               agentAction act ah
             Left e -> do
-              runStdoutLoggingT $ CS.logInfo (T.pack $ "Unrecognized message from " ++ label ++ ": " ++
+              runStdoutLoggingT $ CS.logDebug (T.pack $ "Unrecognized message from " ++ label ++ ": " ++
                 BL.unpack msg ++ " (" ++ e ++ ")")
               sendTextData conn $ encode $
                 Map.fromList [("errorText" :: String, e)]
