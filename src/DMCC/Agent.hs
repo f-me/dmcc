@@ -461,7 +461,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
     -- UCID.
     Rs.EventResponse _ ev@Rs.OriginatedEvent{..} -> do
       s <- readTVarIO snapshot
-      updSnapshot' <- (if Map.member callId (_calls s) then return s else
+      updSnapshot' <- if Map.member callId (_calls s) then return s else
         (do Just gcldr <- runStdoutLoggingT .
                             sendRequestSync (dmccHandle as) (Just aid)
                             $ Rq.GetCallLinkageData device callId (protocolVersion as)
@@ -474,7 +474,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
                 _ -> do atomically $
                           writeTChan eventChan $
                             TelephonyEventError "Bad GetCallLinkageDataResponse"
-                        return s))
+                        return s)
       atomically $ writeTChan eventChan $ TelephonyEvent ev s
       case webHook as of
         Just connData ->
