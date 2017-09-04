@@ -209,12 +209,10 @@ controlAgent switch ext as = do
   -- Check if agent already exists
   prev <- atomically $ do
     locks <- readTVar (agentLocks as)
-    case Set.member aid locks of
-        True -> retry
-        False -> do ags <- readTVar (agents as)
-                    case Map.member aid ags of
-                        True -> return $ Just aid
-                        False -> placeAgentLock ah >> return Nothing
+    if Set.member aid locks then retry else
+      (do ags <- readTVar (agents as)
+          if Map.member aid ags then return $ Just aid else
+            placeAgentLock ah >> return Nothing)
         -- Prevent parallel operation on the same agent
 
   case prev of
@@ -305,13 +303,13 @@ controlAgent switch ext as = do
               Just Rs.GetAgentStateResponse{..} -> do
                 ns <- atomically $ do
                   sn <- readTVar snapshot
-                  case _state sn /= (agentState, reasonCode) of
-                      False -> return Nothing
-                      True -> do modifyTVar' snapshot (state .~ (agentState, reasonCode))
-                                 readTVar snapshot >>=
-                                   \ newSnapshot ->
-                                     do writeTChan eventChan $ StateChange newSnapshot
-                                        return $ Just newSnapshot
+                  if _state sn /= (agentState, reasonCode) then
+                    (do modifyTVar' snapshot (state .~ (agentState, reasonCode))
+                        readTVar snapshot >>=
+                          \ newSnapshot ->
+                            do writeTChan eventChan $ StateChange newSnapshot
+                               return $ Just newSnapshot)
+                  else return Nothing
                 case (ns, webHook as) of
                   (Just ns', Just connData) ->
                     sendWH connData aid (StateChange ns')
