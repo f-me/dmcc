@@ -70,15 +70,15 @@ main = getArgs >>= \case
          (Catch (runStdoutLoggingT (CS.logInfo (T.pack "Termination signal received")) >>
                  throwTo this ExitSuccess))
           Nothing
-    realMain config
+    runStdoutLoggingT $ realMain config
   _ -> getProgName >>= \pn -> error $ "Usage: " ++ pn ++ " <path to config>"
 
 
 -- | Read config and actually start the server
-realMain :: FilePath -> IO ()
+realMain :: MonadLoggerIO m => FilePath -> m ()
 realMain config = do
-  c <- Cfg.load [Cfg.Required config]
-  cfg@Config{..} <- Config
+  c <- liftIO $ Cfg.load [Cfg.Required config]
+  cfg@Config{..} <- liftIO $ Config
       <$> Cfg.require c "listen-port"
       <*> Cfg.require c "aes-addr"
       <*> Cfg.require c "aes-port"
@@ -95,7 +95,7 @@ realMain config = do
       <*> Cfg.require c "connection-retry-attempts"
       <*> Cfg.require c "connection-retry-delay"
 
-  bracket
+  liftIO $ bracket
     (runStdoutLoggingT $ CS.logInfo (T.pack $ "Running dmcc-" ++ showVersion version) >>
      CS.logInfo (T.pack $ "Starting session using " ++ show cfg) >>
      startSession (aesAddr, fromIntegral aesPort)
@@ -179,7 +179,7 @@ avayaApplication Config{..} as refs pending = do
         runStdoutLoggingT $ CS.logDebug (T.pack $ "Controlling agent " ++ show ah ++ " from " ++ label)
         runStdoutLoggingT $ refReport ext' (oldCount + 1)
         -- Agent events loop
-        evThread <- handleEvents ah
+        evThread <- runStdoutLoggingT $ handleEvents ah
           (\ev ->
              do
                runStdoutLoggingT $ CS.logInfo (T.pack $ "Event for " ++ label ++ ": " ++ show ev)

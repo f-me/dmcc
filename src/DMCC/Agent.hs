@@ -624,15 +624,15 @@ releaseAgent ah@(AgentHandle (aid, as)) = do
 
 
 -- | Attach an event handler to an agent. Exceptions are not handled.
-handleEvents :: AgentHandle -> (AgentEvent -> IO ()) -> IO ThreadId
+handleEvents :: MonadLoggerIO m => AgentHandle -> (AgentEvent -> IO ()) -> m ThreadId
 handleEvents (AgentHandle (aid, as)) handler = do
-  ags <- readTVarIO (agents as)
+  ags <- (liftIO . readTVarIO) (agents as)
   case Map.lookup aid ags of
-    Nothing -> throwIO $ UnknownAgent aid
+    Nothing -> liftIO . throwIO $ UnknownAgent aid
     Just Agent{..} ->
       do
-        sub <- atomically $ dupTChan eventChan
-        forkIO $ forever $ handler =<< atomically (readTChan sub)
+        sub <- (liftIO . atomically) $ dupTChan eventChan
+        liftIO . forever $ handler =<< atomically (readTChan sub)
 
 
 getAgentSnapshot :: MonadLoggerIO m => AgentHandle
