@@ -261,7 +261,7 @@ controlAgent switch ext as = do
         actionThread <-
           forkIO $ forever $
           atomically (readTChan actionChan) >>=
-          runStdoutLoggingT . (processAgentAction aid device snapshot as)
+          runStdoutLoggingT . processAgentAction aid device snapshot as
 
         eventChan <- newBroadcastTChanIO
 
@@ -269,7 +269,7 @@ controlAgent switch ext as = do
         rspThread <-
           forkIO $ forever $
           atomically (readTChan rspChan) >>=
-          runStdoutLoggingT . (processAgentEvent aid device snapshot eventChan as)
+          runStdoutLoggingT . processAgentEvent aid device snapshot eventChan as
 
         -- As of DMCC 6.2.x, agent state change events are not
         -- reported by DMCC (see
