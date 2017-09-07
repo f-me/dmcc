@@ -37,6 +37,7 @@ import           Text.Printf
 
 import           Paths_dmcc
 import           DMCC
+import           DMCC.Prelude (liftIO)
 
 
 data Config =
@@ -69,15 +70,15 @@ main = getArgs >>= \case
          (Catch (runStdoutLoggingT (CS.logInfo (T.pack "Termination signal received")) >>
                  throwTo this ExitSuccess))
           Nothing
-    realMain config
+    runStdoutLoggingT $ realMain config
   _ -> getProgName >>= \pn -> error $ "Usage: " ++ pn ++ " <path to config>"
 
 
 -- | Read config and actually start the server
-realMain :: FilePath -> IO ()
+realMain :: MonadLoggerIO m => FilePath -> m ()
 realMain config = do
-  c <- Cfg.load [Cfg.Required config]
-  cfg@Config{..} <- Config
+  c <- liftIO $ Cfg.load [Cfg.Required config]
+  cfg@Config{..} <- liftIO $ Config
       <$> Cfg.require c "listen-port"
       <*> Cfg.require c "aes-addr"
       <*> Cfg.require c "aes-port"
@@ -94,7 +95,7 @@ realMain config = do
       <*> Cfg.require c "connection-retry-attempts"
       <*> Cfg.require c "connection-retry-delay"
 
-  bracket
+  liftIO $ bracket
     (runStdoutLoggingT $ CS.logInfo (T.pack $ "Running dmcc-" ++ showVersion version) >>
      CS.logInfo (T.pack $ "Starting session using " ++ show cfg) >>
      startSession (aesAddr, fromIntegral aesPort)
@@ -120,19 +121,19 @@ type AgentMap = TMVar (Map.Map AgentHandle Int)
 
 -- | Decrement reference counter for an agent. If no references left,
 -- release control over agent. Return how many references are left.
-releaseAgentRef :: AgentHandle -> AgentMap -> IO Int
+releaseAgentRef :: MonadLoggerIO m => AgentHandle -> AgentMap -> m Int
 releaseAgentRef ah refs = do
-  r <- atomically $ takeTMVar refs
-  flip onException (atomically $ putTMVar refs r) $
+  r <- liftIO . atomically $ takeTMVar refs
+  liftIO $ flip onException (atomically $ putTMVar refs r) $
     case Map.lookup ah r of
       Just cnt -> do
         newR <-
           if cnt > 1
           then return $ Map.insert ah (cnt - 1) r
-          else releaseAgent ah >>
+          else runStdoutLoggingT $ releaseAgent ah >>
                runStdoutLoggingT (CS.logDebug (T.pack $ "Agent " ++ show ah ++ " is no longer controlled")) >>
                return (Map.delete ah r)
-        atomically $ putTMVar refs newR
+        liftIO . atomically $ putTMVar refs newR
         return $ cnt - 1
       Nothing -> error $ "Releasing unknown agent " ++ show ah
 
@@ -165,7 +166,7 @@ avayaApplication Config{..} as refs pending = do
             atomically $ putTMVar refs r
             runStdoutLoggingT $ CS.logDebug (T.pack $ "Restored agent references map to " ++ show r)
       (ah, evThread) <- (`onException` initialHandler) $ do
-        cRsp <- controlAgent switchName ext' as
+        cRsp <- runStdoutLoggingT $ controlAgent switchName ext' as
         ah <- case cRsp of
                 Right ah' -> return ah'
                 Left err -> do
@@ -178,7 +179,7 @@ avayaApplication Config{..} as refs pending = do
         runStdoutLoggingT $ CS.logDebug (T.pack $ "Controlling agent " ++ show ah ++ " from " ++ label)
         runStdoutLoggingT $ refReport ext' (oldCount + 1)
         -- Agent events loop
-        evThread <- handleEvents ah
+        evThread <- runStdoutLoggingT $ handleEvents ah
           (\ev ->
              do
                runStdoutLoggingT $ CS.logInfo (T.pack $ "Event for " ++ label ++ ": " ++ show ev)
@@ -192,9 +193,9 @@ avayaApplication Config{..} as refs pending = do
             threadDelay $ refDelay * 1000000
             -- Decrement reference counter when the connection dies or any
             -- other exception happens
-            releaseAgentRef ah refs >>= runStdoutLoggingT . refReport ext'
+            runStdoutLoggingT $ releaseAgentRef ah refs >>= runStdoutLoggingT . refReport ext'
       handle (\(_ :: ConnectionException) -> disconnectionHandler) $ do
-        s <- getAgentSnapshot ah
+        s <- runStdoutLoggingT $ getAgentSnapshot ah
         sendTextData conn $ encode s
         -- Agent actions loop
         forever $ do
@@ -202,7 +203,7 @@ avayaApplication Config{..} as refs pending = do
           case eitherDecode msg of
             Right act -> do
               runStdoutLoggingT $ CS.logDebug (T.pack $ "Action from " ++ label ++ ": " ++ show act)
-              agentAction act ah
+              runStdoutLoggingT $ agentAction act ah
             Left e -> do
               runStdoutLoggingT $ CS.logDebug (T.pack $ "Unrecognized message from " ++ label ++ ": " ++
                 BL.unpack msg ++ " (" ++ e ++ ")")
