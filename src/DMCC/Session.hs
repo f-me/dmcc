@@ -1,14 +1,15 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DoAndIfThenElse #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
 {-|
-
 DMCC session handling.
-
 -}
 
 module DMCC.Session
@@ -16,7 +17,6 @@ module DMCC.Session
   , ConnectionType(..)
   , startSession
   , stopSession
-  , defaultLoggingOptions
   , defaultSessionOptions
 
   , DMCCError(..)
@@ -28,20 +28,17 @@ module DMCC.Session
 
 where
 
-import           Control.Arrow
-import           Control.Monad
-import           Control.Exception
-import           Control.Concurrent
-import           Control.Concurrent.STM
+import           DMCC.Prelude
+
+import           Control.Arrow()
+import           Control.Monad.Logger
 
 import           Data.ByteString (ByteString)
-import           Data.List
 import qualified Data.Map.Strict as Map
-import           Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.IntMap.Strict as IntMap
-import           Data.Text as T (Text, empty, unpack)
-import           Data.Typeable
+import           Data.Text as T (Text, empty)
+import           Data.Typeable()
 
 import           System.IO
 import           System.IO.Streams (InputStream,
@@ -50,7 +47,6 @@ import           System.IO.Streams (InputStream,
                                     write)
 import           System.IO.Streams.Handle
 import qualified System.IO.Streams.SSL as SSLStreams
-import           System.Posix.Syslog
 
 import           Network
 import qualified Network.HTTP.Client as HTTP
@@ -59,7 +55,6 @@ import           OpenSSL
 import qualified OpenSSL.Session as SSL
 
 import           DMCC.Types
-import           DMCC.Util
 import           DMCC.XML.Request (Request)
 import qualified DMCC.XML.Request as Rq
 import           DMCC.XML.Response (Response)
@@ -73,6 +68,7 @@ data ConnectionType = Plain
                     | TLS { caDir :: Maybe FilePath }
 
 
+-- | Third element is a connection close action.
 type ConnectionData = (InputStream ByteString, OutputStream ByteString, IO ())
 
 
@@ -82,7 +78,7 @@ data DMCCHandle = DMCCHandle
   -- ^ AVAYA server socket streams and connection cleanup action.
   , dmccSession :: TMVar (Text, Int)
   -- ^ DMCC session ID and duration.
-  , reconnect :: IO ()
+  , reconnect :: forall m. (MonadCatchLoggerIO m, MonadBaseControl IO m) => m ()
   -- ^ Reconnect to AVAYA server, changing socket streams, cleanup
   -- action and session.
   , pingThread :: ThreadId
@@ -96,7 +92,6 @@ data DMCCHandle = DMCCHandle
   , agentRequests :: TVar (IntMap.IntMap AgentId)
   -- ^ Keeps track of which request has has been issued by what agent
   -- (if there's one) until its response arrives.
-  , loggingOptions :: Maybe LoggingOptions
   , sessionOptions :: SessionOptions
   }
 
@@ -131,15 +126,12 @@ data DMCCError = ApplicationSessionFailed
 instance Exception DMCCError
 
 
-defaultLoggingOptions :: LoggingOptions
-defaultLoggingOptions = LoggingOptions "dmcc-lib"
-
-
 defaultSessionOptions :: SessionOptions
 defaultSessionOptions = SessionOptions 1 120 24 5
 
 
-startSession :: (String, PortNumber)
+startSession :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
+             => (String, PortNumber)
              -- ^ Host and port of AES server.
              -> ConnectionType
              -- ^ Use TLS.
@@ -149,10 +141,9 @@ startSession :: (String, PortNumber)
              -- ^ DMCC API password.
              -> Maybe String
              -- ^ Web hook URL.
-             -> Maybe LoggingOptions
              -> SessionOptions
-             -> IO Session
-startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
+             -> m Session
+startSession (host, port) ct user pass whUrl sopts = do
   syncResponses <- newTVarIO IntMap.empty
   agentRequests <- newTVarIO IntMap.empty
   invoke <- newTVarIO 0
@@ -165,13 +156,13 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
 
   let
     -- Connect to the server, produce I/O streams and a cleanup action
-    connect :: IO ConnectionData
+    connect :: (MonadBase IO m, MonadCatchLoggerIO m) => m ConnectionData
     connect = connect1 (connectionRetryAttempts sopts)
       where
-        connectExHandler :: (Exception e, Show e) =>
-                            Int -> e -> IO ConnectionData
+        connectExHandler :: (Exception e, Show e, MonadCatchLoggerIO m, MonadBase IO m) =>
+                            Int -> e -> m ConnectionData
         connectExHandler attempts e = do
-          maybeSyslog lopts Critical ("Connection failed: " ++ show e)
+          logErrorN ("Connection failed: " <> tshow e)
           if attempts > 0
           then do
             threadDelay $ connectionRetryDelay sopts * 1000000
@@ -179,7 +170,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
           else throwIO e
         connect1 attempts =
           handleNetwork (connectExHandler attempts) $
-          case ct of
+          liftIO $ case ct of
             Plain -> do
               h <- connectTo host (PortNumber $ fromIntegral port)
               hSetBuffering h NoBuffering
@@ -187,7 +178,7 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
               os <- handleToOutputStream h
               let cl = hClose h
               return (is, os, cl)
-            TLS caDir -> do
+            TLS caDir -> withOpenSSL $ do
               sslCtx <- SSL.context
               SSL.contextSetDefaultCiphers sslCtx
               SSL.contextSetVerificationMode sslCtx $
@@ -200,15 +191,15 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
               return (is, os, cl)
 
     -- Start new DMCC session
-    startDMCCSession :: Maybe Text
+    startDMCCSession :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
+                     => Maybe Text
                      -- ^ Previous session ID (we attempt to recover
                      -- when this is given).
-                     -> IO ((Text, Int), Text)
+                     -> m ((Text, Int), Text)
     startDMCCSession old = do
       let
         sendReq =
           sendRequestSyncRaw
-          lopts
           conn
           reconnect
           invoke
@@ -246,7 +237,6 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
               sessionMonitorReq actualProtocolVersion
               -- Transfer MonitorObjects from old session
               sendRequestAsyncRaw
-                lopts
                 conn
                 reconnect
                 invoke
@@ -263,8 +253,9 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
     -- Restart I/O and DMCC session. This routine returns when new I/O
     -- streams become available (starting DMCC session requires
     -- response reader thread to be functional).
+    reconnect :: (MonadBaseControl IO m, MonadCatchLoggerIO m) => m ()
     reconnect = do
-      maybeSyslog lopts Warning "Attempting reconnection"
+      logWarnN "Attempting reconnection"
       -- Only one reconnection at a time
       (oldId, cl) <- atomically $ do
         (oldId, _) <- takeTMVar sess
@@ -277,12 +268,12 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
         writeTVar syncResponses IntMap.empty
       handle
         (\(e :: IOException) ->
-           maybeSyslog lopts Error $
-           "Failed to close old connection: " ++ show e)
-        cl
+           logErrorN $
+           "Failed to close old connection: " <> tshow e) $
+        liftIO cl
       -- We do not change the protocol version during session recovery
       connect >>= atomically . putTMVar conn
-      maybeSyslog lopts Warning "Connection re-established"
+      logWarnN "Connection re-established"
       let
         shdl (Right ()) = return ()
         shdl (Left e) = throwIO e
@@ -297,19 +288,19 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
   -- Read DMCC responses from socket
   msgChan <- newTChanIO
   let readExHandler e =
-        maybeSyslog lopts Critical ("Read error: " ++ show e) >>
+        logErrorN ("Read error: " <> tshow e) >>
         reconnect
   readThread <-
-    forkIO $ forever $ do
+    fork $ forever $ liftIO $ do
       (istream, _, _) <- atomically $ readTMVar conn
-      handleNetwork readExHandler $
-        Raw.readResponse lopts istream >>=
+      runStdoutLoggingT . handleNetwork readExHandler $
+        Raw.readResponse istream >>=
         atomically . writeTChan msgChan . first DMCCRsp
 
   agents <- newTVarIO Map.empty
 
   -- Process parsed messages
-  procThread <- forkIO $ forever $ do
+  procThread <- fork $ forever $ do
     (msg, invokeId) <- atomically $ readTChan msgChan
     -- TODO Check agent locks?
     ags <- readTVarIO agents
@@ -341,10 +332,10 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
       _ -> return ()
 
   -- Keep the session alive
-  pingThread <- forkIO $ forever $ do
+  pingThread <- fork $ forever $ do
     -- Do not send a keep-alive message if the session is not ready
-    (sid, duration) <- atomically $ readTMVar sess
-    sendRequestAsyncRaw lopts conn reconnect invoke Nothing
+    (sid, duration) <- readTMVarIO sess
+    sendRequestAsyncRaw conn reconnect invoke Nothing
       Rq.ResetApplicationSessionTimer
       { sessionId = sid
       , requestedSessionDuration = duration
@@ -361,18 +352,17 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
           invoke
           syncResponses
           agentRequests
-          lopts
           sopts
 
   -- Start the session
-  connect >>= atomically . putTMVar conn
-  (newSession, actualProtocolVersion) <- startDMCCSession Nothing
+  runStdoutLoggingT connect >>= atomically . putTMVar conn
+  (newSession, actualProtocolVersion) <- runStdoutLoggingT $ startDMCCSession Nothing
   atomically $ putTMVar sess newSession
 
   wh <- case whUrl of
           Just url -> do
-            mgr <- HTTP.newManager HTTP.defaultManagerSettings
-            req <- HTTP.parseUrl url
+            mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
+            req <- HTTP.parseUrlThrow url
             return $ Just (req, mgr)
           Nothing -> return Nothing
 
@@ -388,20 +378,23 @@ startSession (host, port) ct user pass whUrl lopts sopts = withOpenSSL $ do
 
 
 -- | TODO Agent releasing notice
-stopSession :: Session -> IO ()
+stopSession :: (MonadCatchLoggerIO m, MonadBaseControl IO m) => Session -> m ()
 stopSession as@Session{..} = do
   -- Release all agents
   ags <- readTVarIO agents
   (s, _) <- atomically $ readTMVar $ dmccSession dmccHandle
-  mapM_ (releaseAgent . (\aid -> AgentHandle (aid, as))) $ Map.keys ags
+  mapM_ (liftIO . runStdoutLoggingT . releaseAgent . (\aid -> AgentHandle (aid, as))) $ keys ags
 
   sendRequestAsync dmccHandle Nothing Rq.StopApplicationSession{sessionID = s}
+
+  -- TOOD Use async/throwTo instead
   killThread $ pingThread dmccHandle
   killThread $ procThread dmccHandle
   killThread $ readThread dmccHandle
   (_, ostream, cleanup) <- atomically $ readTMVar (connection dmccHandle)
-  write Nothing ostream
-  cleanup
+  liftIO $ do
+    write Nothing ostream
+    cleanup
 
 
 -- | Send a request and block until the response arrives or a write
@@ -416,7 +409,8 @@ stopSession as@Session{..} = do
 -- Write errors are made explicit here because 'sendRequestSync' is
 -- called from multiple locations, making it tedious to install the
 -- reconnection handler everywhere.
-sendRequestSync :: DMCCHandle
+sendRequestSync :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
+                => DMCCHandle
                 -> Maybe AgentId
                 -- ^ Push erroneous responses to this agent's event
                 -- processor.
@@ -424,11 +418,10 @@ sendRequestSync :: DMCCHandle
                 -- TODO Disallow unknown agents on type level (use
                 -- AgentHandle).
                 -> Request
-                -> IO (Maybe Response)
+                -> m (Maybe Response)
 sendRequestSync DMCCHandle{..} aid rq = do
   void $ atomically $ readTMVar dmccSession
   sendRequestSyncRaw
-    loggingOptions
     connection
     reconnect
     invokeId
@@ -437,10 +430,10 @@ sendRequestSync DMCCHandle{..} aid rq = do
     rq
 
 
-sendRequestSyncRaw :: Maybe LoggingOptions
-                   -> TMVar ConnectionData
+sendRequestSyncRaw :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
+                   => TMVar ConnectionData
                    -- ^ Block until this connection becomes available.
-                   -> IO ()
+                   -> m ()
                    -- ^ Reconnection action.
                    -> TVar Int
                    -> TVar (IntMap.IntMap (TMVar (Maybe Response)))
@@ -450,8 +443,8 @@ sendRequestSyncRaw :: Maybe LoggingOptions
                    -- provided, CSTAErrorCode response will be
                    -- directed to that agent's event processor.
                    -> Request
-                   -> IO (Maybe Response)
-sendRequestSyncRaw lopts connection re invoke srs ar !rq = do
+                   -> m (Maybe Response)
+sendRequestSyncRaw connection re invoke srs ar !rq = do
   (ix, var, c@(_, ostream, _)) <- atomically $ do
     modifyTVar' invoke ((`mod` 9999) . (+1))
     ix <- readTVar invoke
@@ -464,8 +457,8 @@ sendRequestSyncRaw lopts connection re invoke srs ar !rq = do
     return (ix, var, c)
   let
     srHandler e = do
-      maybeSyslog lopts Critical ("Write error: " ++ show e)
-      atomically $ do
+      logErrorN $ "Write error: " <> tshow e
+      liftIO $ atomically $ do
         putTMVar connection c
         putTMVar var Nothing
         modifyTVar' srs $ IntMap.delete ix
@@ -473,24 +466,25 @@ sendRequestSyncRaw lopts connection re invoke srs ar !rq = do
           Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
           Nothing -> return ()
       re
-  handleNetwork srHandler $ Raw.sendRequest lopts ostream ix rq
+  handleNetwork srHandler $ Raw.sendRequest ostream ix rq
   -- Release the connection at once and wait for response in a
   -- separate transaction.
-  atomically $ putTMVar connection c
-  atomically $ takeTMVar var
+  liftIO $ do
+    atomically $ putTMVar connection c
+    atomically $ takeTMVar var
 
 
 -- | Like 'sendRequestAsync', but do not wait for a result.
-sendRequestAsync :: DMCCHandle
+sendRequestAsync :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
+                 => DMCCHandle
                  -> Maybe AgentId
                  -- ^ Push erroneous responses to this agent's event
                  -- processor.
                  -> Request
-                 -> IO ()
+                 -> m ()
 sendRequestAsync DMCCHandle{..} aid rq = do
-  void $ atomically $ readTMVar dmccSession
+  void $ readTMVarIO dmccSession
   sendRequestAsyncRaw
-    loggingOptions
     connection
     reconnect
     invokeId
@@ -498,15 +492,16 @@ sendRequestAsync DMCCHandle{..} aid rq = do
     rq
 
 
-sendRequestAsyncRaw :: Maybe LoggingOptions
-                    -> TMVar ConnectionData
-                   -- ^ Block until this connection becomes available.
-                    -> IO ()
+sendRequestAsyncRaw :: MonadCatchLoggerIO m
+                    => TMVar ConnectionData
+                    -- ^ Block until this connection becomes available.
+                    -> m ()
+                    -- ^ Reconnection action.
                     -> TVar Int
                     -> Maybe (TVar (IntMap.IntMap AgentId), AgentId)
                     -> Request
-                    -> IO ()
-sendRequestAsyncRaw lopts connection re invoke ar !rq = do
+                    -> m ()
+sendRequestAsyncRaw connection re invoke ar !rq = do
   (ix, c@(_, ostream, _)) <- atomically $ do
     modifyTVar' invoke ((`mod` 9999) . (+1))
     ix <- readTVar invoke
@@ -517,22 +512,23 @@ sendRequestAsyncRaw lopts connection re invoke ar !rq = do
     return (ix, c)
   let
     srHandler e = do
-      maybeSyslog lopts Critical ("Write error: " ++ show e)
-      atomically $ do
+      logErrorN $ "Write error: " <> tshow e
+      liftIO $ atomically $ do
         putTMVar connection c
         case ar of
           Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
           Nothing -> return ()
       re
-  handleNetwork srHandler $ Raw.sendRequest lopts ostream ix rq
+  handleNetwork srHandler $ Raw.sendRequest ostream ix rq
   atomically $ putTMVar connection c
 
 
 -- | Handle network-related errors we know of.
-handleNetwork :: (forall e. (Exception e, Show e) => (e -> IO a))
+handleNetwork :: forall a m. MonadCatchLoggerIO m
+              => (forall e. (Exception e, Show e) => (e -> m a))
               -- ^ Exception handler.
-              -> IO a
-              -> IO a
+              -> m a
+              -> m a
 handleNetwork handler action =
   action `catches`
   [ Handler (\(e :: ReadTooShortException) -> handler e)

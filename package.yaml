@@ -26,9 +26,11 @@ dependencies:
   - aeson
   - base
   - bytestring
+  - classy-prelude
   - containers
-  - hsyslog
+  - monad-logger
   - stm
+  - stm-lifted
   - text
   - time
 
@@ -58,5 +60,6 @@ executables:
       - random
       - unix
       - websockets
+      - stm
     other-modules:
       - Paths_dmcc

@@ -1,12 +1,10 @@
-module DMCC.Util
+module DMCC.Util where
 
-where
-
-import           System.Posix.Syslog
-
+import           Data.Text as T
+import           Control.Monad.Logger.CallStack
+import           DMCC.Prelude()
 import           DMCC.Types
 
-maybeSyslog :: Maybe LoggingOptions -> Priority -> String -> IO ()
-maybeSyslog Nothing _ _ = return ()
-maybeSyslog (Just LoggingOptions{..}) pri msg =
-  withSyslog syslogIdent [PID] USER (logUpTo Debug) $ syslog pri msg
+maybeSyslog :: MonadLogger m => Maybe LoggingOptions -> String -> m ()
+maybeSyslog Nothing _ = return ()
+maybeSyslog (Just LoggingOptions{..}) msg = logInfo (T.pack msg)
