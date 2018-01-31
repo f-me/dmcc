@@ -9,6 +9,8 @@ module DMCC.XML.Request
 
 where
 
+import           ClassyPrelude
+
 import qualified Data.ByteString.Lazy as L
 import           Data.CaseInsensitive
 import qualified Data.Map as Map

@@ -10,10 +10,11 @@ module DMCC.XML.Response
 
 where
 
+import           ClassyPrelude
+
 import           Control.Exception (SomeException)
-import           Data.ByteString.Lazy (ByteString)
 import           Data.CaseInsensitive (mk)
-import           Data.List
+import           Data.List (foldl1')
 import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Read as T
@@ -28,8 +29,8 @@ import           DMCC.Types
 
 -- | DMCC response to a request.
 data Response
-  = UnknownResponse ByteString
-  | MalformedResponse ByteString SomeException
+  = UnknownResponse LByteString
+  | MalformedResponse LByteString SomeException
   | StartApplicationSessionPosResponse
     { sessionID :: Text
     , actualProtocolVersion :: Text
@@ -120,7 +121,7 @@ $(deriveJSON
   defaultOptions{sumEncoding = defaultTaggedObject{tagFieldName="event"}}
   ''Event)
 
-fromXml :: ByteString -> Response
+fromXml :: LByteString -> Response
 fromXml xml
   = case parseLBS def xml of
     Left err -> MalformedResponse xml err
@@ -301,18 +302,16 @@ text c n = textFromPath c n []
 decimal c n = let txt = text c n
   in case T.decimal txt of
     Right (x,"") -> x
-    _ -> error $ "Can't parse as decimal: " ++ show txt
+    _ -> error $ "Can't parse as decimal: " ++ show (txt :: Text)
 
 
 -- | Extract contents of the first element which matches provided
 -- path (@rootName:extraNames@). Return empty text if no element
 -- matches the path.
 textFromPath cur rootName extraNames =
-  if null contents
-  then ""
-  else head contents
+  fromMaybe "" (headMay contents)
   where
     contents =
       cur $//
-      (foldl1' (&/) (Data.List.map laxElement (rootName:extraNames))
+      (foldl1' (&/) (map laxElement (rootName:extraNames))
        &/ content)
