@@ -9,13 +9,14 @@ module DMCC.Types
 
 where
 
+import ClassyPrelude
+
 import Data.Aeson as A
 import Data.Aeson.TH
 import Data.ByteString (ByteString)
 import Data.CaseInsensitive
 import Data.Data
 import Data.Text as T
-import Data.Time.Clock
 
 
 -- | Device ID used in DMCC requests.
@@ -131,6 +132,7 @@ data ParticipationType = Active
 $(deriveJSON defaultOptions ''ParticipationType)
 
 
+-- TODO This should be removed
 newtype LoggingOptions = LoggingOptions
   { syslogIdent :: ByteString
   }

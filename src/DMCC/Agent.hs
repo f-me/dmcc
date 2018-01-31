@@ -13,11 +13,11 @@ module DMCC.Agent
 
 where
 
-import           Control.Exception
+import           ClassyPrelude
+
 import           Control.Lens
-import           Control.Monad
-import           Control.Concurrent
-import           Control.Concurrent.STM
+import           Control.Concurrent (forkIO)
+import           Control.Concurrent.STM (retry)
 import           Control.Monad.Logger
 
 import           Data.Aeson as A
@@ -25,10 +25,7 @@ import           Data.Aeson.TH
 import           Data.CaseInsensitive (original)
 import           Data.Data
 import qualified Data.Map.Strict as Map
-import           Data.Monoid
 import qualified Data.Set as Set
-import           Data.Text (Text, unpack, pack)
-import           Data.Time.Clock
 
 import qualified Network.HTTP.Client as HTTP
 import           Network.HTTP.Client (httpNoBody, method, requestBody)

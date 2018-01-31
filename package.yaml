@@ -19,6 +19,7 @@ default-extensions:
   - OverloadedStrings
   - RecordWildCards
   - NamedFieldPuns
+  - NoImplicitPrelude
 
 ghc-options:
   - -Wall
