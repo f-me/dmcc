@@ -38,20 +38,19 @@ sendRequest :: MonadLoggerIO m
             -> Int
             -> Request
             -> m ()
-sendRequest h ix rq =
-  let
-    rawRequest = toXml rq
-  in
-    do
-      logDebugN $
-        "Sending request (invokeId=" <> tshow ix <> ") " <>
-        tshow (L8.unpack rawRequest)
-      liftIO $ flip Streams.writeLazyByteString h $ runPut $ do
-        putWord16be 0
-        putWord16be . fromIntegral $ 8 + L.length rawRequest
-        let invokeId = S.pack . take 4 $ printf "%04d" ix
-        putByteString invokeId
-        putLazyByteString rawRequest
+sendRequest h ix rq = do
+  logDebugN
+    $ "Sending request (invokeId=" <> tshow ix <> ") "
+    <> tshow (L8.unpack rawRequest)
+
+  liftIO $ flip Streams.writeLazyByteString h $ runPut $ do
+    putWord16be 0
+    putWord16be . fromIntegral $ 8 + L.length rawRequest
+    let invokeId = S.pack . take 4 $ printf "%04d" ix
+    putByteString invokeId
+    putLazyByteString rawRequest
+
+  where rawRequest = toXml rq
 
 
 -- | Read a CSTA message from an input stream. Throws
@@ -63,18 +62,22 @@ readResponse h = do
   -- xml-conduit parser requires a lazy ByteString
   let readLazy i = do
         v <- Streams.readExactly i h
-        return $ L.fromChunks [v]
+        pure $ L.fromChunks [v]
+
   (len, invokeId) <- liftIO $ runGet readHeader <$> readLazy 8
-  resp <- liftIO $ readLazy (len - 8)
-  logDebugN $
-    "Received response (invokeId=" <> tshow invokeId <> ") " <>
-    tshow (L8.unpack resp)
-  return (fromXml resp, invokeId)
+  resp <- liftIO $ readLazy $ len - 8
+
+  logDebugN
+    $ "Received response (invokeId=" <> tshow invokeId <> ") "
+    <> tshow (L8.unpack resp)
+
+  pure (fromXml resp, invokeId)
+
   where
     readHeader = do
       skip 2 -- version
       len <- fromIntegral <$> getWord16be
       ix  <- getByteString 4
       case S.readInt ix of
-        Just (invokeId, "") -> return (len, invokeId)
-        _ -> fail $ "Invalid InvokeID: " ++ show ix
+        Just (invokeId, "") -> pure (len, invokeId)
+        _ -> fail $ "Invalid InvokeID: " <> show ix
