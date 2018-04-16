@@ -1,6 +1,8 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 {-|
 
@@ -10,12 +12,9 @@ WebSockets interface for DMCC.
 
 module Main where
 
-import           Control.Concurrent
-import           Control.Exception
 import           Control.Monad
 import           Control.Monad.Logger
 import           Control.Monad.Logger.CallStack as CS
-import           Control.Concurrent.STM
 
 import           Data.Aeson hiding (Error)
 import qualified Data.ByteString.Char8 as B
@@ -26,6 +25,7 @@ import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Version (showVersion)
+import           Data.String (fromString)
 
 import           Network.WebSockets
 
@@ -37,11 +37,11 @@ import           Text.Printf
 
 import           Paths_dmcc
 import           DMCC
-import           DMCC.Prelude (liftIO)
+import           DMCC.Prelude hiding (getArgs)
 
 
-data Config =
-  Config
+data Config
+  = Config
   { listenPort :: Int
   , aesAddr    :: String
   , aesPort    :: Int
@@ -64,18 +64,21 @@ main :: IO ()
 main = getArgs >>= \case
   [config] -> do
     this <- myThreadId
+    let logger = runStdoutLoggingT
+
     -- Terminate on SIGTERM
-    _ <- installHandler
-         sigTERM
-         (Catch (runStdoutLoggingT (CS.logInfo (T.pack "Termination signal received")) >>
-                 throwTo this ExitSuccess))
-          Nothing
-    runStdoutLoggingT $ realMain config
-  _ -> getProgName >>= \pn -> error $ "Usage: " ++ pn ++ " <path to config>"
+    let termHandler = Catch $ do
+          logger $ CS.logInfo "Termination signal received"
+          throwTo this ExitSuccess
+
+    _ <- installHandler sigTERM termHandler Nothing
+    logger $ realMain config
+
+  _ -> getProgName >>= \pn -> error $ "Usage: " <> pn <> " <path to config>"
 
 
 -- | Read config and actually start the server
-realMain :: MonadLoggerIO m => FilePath -> m ()
+realMain :: (MonadLoggerIO m, MonadMask m, MonadBaseControl IO m) => FilePath -> m ()
 realMain config = do
   c <- liftIO $ Cfg.load [Cfg.Required config]
   cfg@Config{..} <- liftIO $ Config
@@ -95,25 +98,29 @@ realMain config = do
       <*> Cfg.require c "connection-retry-attempts"
       <*> Cfg.require c "connection-retry-delay"
 
-  liftIO $ bracket
-    (runStdoutLoggingT $ CS.logInfo (T.pack $ "Running dmcc-" ++ showVersion version) >>
-     CS.logInfo (T.pack $ "Starting session using " ++ show cfg) >>
-     startSession (aesAddr, fromIntegral aesPort)
-     (if aesTLS then TLS caDir else Plain)
-     apiUser apiPass
-     whUrl
-     defaultSessionOptions { statePollingDelay = stateDelay
-                          , sessionDuration = sessDur
-                          , connectionRetryAttempts = connAtts
-                          , connectionRetryDelay = connDelay
-                          })
-    (\s ->
-        runStdoutLoggingT $ CS.logInfo (T.pack $ "Stopping " ++ show s) >>
-        stopSession s)
-    (\s ->
-       (runStdoutLoggingT . CS.logInfo . T.pack) ("Running server for " ++ show s) >>
-       newTMVarIO Map.empty >>=
-       \refs -> runServer "0.0.0.0" listenPort (avayaApplication cfg s refs))
+  CS.logInfo $ "Running dmcc-" <> fromString (showVersion version)
+  CS.logInfo $ "Starting session using " <> fromString (show cfg)
+
+  let runSession = startSession
+        (aesAddr, fromIntegral aesPort)
+        (if aesTLS then TLS caDir else Plain)
+        apiUser apiPass
+        whUrl
+        defaultSessionOptions { statePollingDelay       = stateDelay
+                              , sessionDuration         = sessDur
+                              , connectionRetryAttempts = connAtts
+                              , connectionRetryDelay    = connDelay
+                              }
+
+      releaseSession s = do
+        CS.logInfo $ "Stopping " <> fromString (show s)
+        stopSession s
+
+      handleSession s = do
+        CS.logInfo $ "Running server for " <> fromString (show s)
+        liftIO $ newTMVarIO Map.empty >>= runServer "0.0.0.0" listenPort . avayaApplication cfg s
+
+  bracket runSession releaseSession handleSession
 
 
 type AgentMap = TMVar (Map.Map AgentHandle Int)
@@ -129,12 +136,12 @@ releaseAgentRef ah refs = do
       Just cnt -> do
         newR <-
           if cnt > 1
-          then return $ Map.insert ah (cnt - 1) r
+          then pure $ Map.insert ah (cnt - 1) r
           else runStdoutLoggingT $ releaseAgent ah >>
                runStdoutLoggingT (CS.logDebug (T.pack $ "Agent " ++ show ah ++ " is no longer controlled")) >>
-               return (Map.delete ah r)
+               pure (Map.delete ah r)
         liftIO . atomically $ putTMVar refs newR
-        return $ cnt - 1
+        pure $ cnt - 1
       Nothing -> error $ "Releasing unknown agent " ++ show ah
 
 
@@ -168,7 +175,7 @@ avayaApplication Config{..} as refs pending = do
       (ah, evThread) <- (`onException` initialHandler) $ do
         cRsp <- runStdoutLoggingT $ controlAgent switchName ext' as
         ah <- case cRsp of
-                Right ah' -> return ah'
+                Right ah' -> pure ah'
                 Left err -> do
                   sendTextData conn $ encode $ RequestError $ show err
                   runStdoutLoggingT $ CS.logError (T.pack $ "Could not control agent for " ++ label ++ ": " ++ show err)
@@ -185,7 +192,7 @@ avayaApplication Config{..} as refs pending = do
                runStdoutLoggingT $ CS.logInfo (T.pack $ "Event for " ++ label ++ ": " ++ show ev)
                sendTextData conn $ encode ev)
         runStdoutLoggingT $ CS.logDebug (T.pack $ show evThread ++ " handles events for " ++ label)
-        return (ah, evThread)
+        pure (ah, evThread)
 
       let disconnectionHandler = do
             runStdoutLoggingT $ CS.logDebug (T.pack $ "Websocket closed for " ++ label)
