@@ -1,4 +1,3 @@
----
 name: dmcc
 version: 0.6.0
 synopsis: AVAYA DMCC XML API implementation and WebSockets server
@@ -17,11 +16,15 @@ extra-source-files:
   - dmcc-ws/example.cfg
 
 default-extensions:
-  - OverloadedStrings,
-  - RecordWildCards,
+  - OverloadedStrings
+  - RecordWildCards
   - NamedFieldPuns
 
-ghc-options: -Wall -fno-warn-unused-do-bind -threaded
+ghc-options:
+  - -Wall
+  - -fno-warn-unused-do-bind
+  - -threaded
+
 dependencies:
   - aeson
   - base
