@@ -8,7 +8,7 @@ description:
 github: f-me/dmcc
 license: BSD3
 author: Max Taldykin, Timofey Cherganov, Dmitry Dzhus
-maintainer: dmitry@formalmethods.ru
+maintainer: dima@dzhus.org
 category: Network
 
 extra-source-files:
