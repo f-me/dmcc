@@ -7,7 +7,7 @@ description:
     with AVAYA (DMCC 6.3) extensions.
 github: f-me/dmcc
 license: BSD3
-author: Max Taldykin, Timofey Cherganov, Dmitry Dzhus
+author: Max Taldykin, Timofey Cherganov, Dmitry Dzhus, Daniel Rogozin, Viacheslav Lotsmanov
 maintainer: dima@dzhus.org
 category: Network
 
