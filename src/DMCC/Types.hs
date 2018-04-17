@@ -28,7 +28,7 @@ newtype DeviceId =
 
 
 instance FromJSON DeviceId where
-  parseJSON v = (DeviceId . mk) <$> parseJSON v
+  parseJSON v = DeviceId . mk <$> parseJSON v
 
 
 instance ToJSON DeviceId where
