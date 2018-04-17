@@ -58,6 +58,7 @@ data Config
   }
   deriving Show
 
+
 main :: IO ()
 main = getArgs >>= \case
   [config] -> do
@@ -70,14 +71,20 @@ main = getArgs >>= \case
           throwTo this ExitSuccess
 
     _ <- installHandler sigTERM termHandler Nothing
-    logger $ realMain config
+    logger $ realMain logger config
 
   _ -> getProgName >>= \pn -> error $ "Usage: " <> pn <> " <path to config>"
 
 
+type AgentMap = TMVar (Map.Map AgentHandle Int)
+
+
 -- | Read config and actually start the server
-realMain :: (MonadLoggerIO m, MonadMask m, MonadBaseControl IO m) => FilePath -> m ()
-realMain config = do
+realMain :: (MonadLoggerIO m, MonadMask m, MonadBaseControl IO m)
+         => (m () -> IO ())
+         -> FilePath
+         -> m ()
+realMain logger config = do
   c <- liftIO $ Cfg.load [Cfg.Required config]
   cfg@Config{..} <- liftIO $ Config
       <$> Cfg.require c "listen-port"
@@ -116,102 +123,121 @@ realMain config = do
 
       handleSession s = do
         CS.logInfo $ "Running server for " <> fromString (show s)
-        liftIO $ newTMVarIO Map.empty >>= runServer "0.0.0.0" listenPort . avayaApplication cfg s
+        (agentMap :: AgentMap) <- liftIO $ newTMVarIO Map.empty
+        liftIO $ runServer "0.0.0.0" listenPort $ logger . avayaApplication cfg s agentMap
 
   bracket runSession releaseSession handleSession
 
 
-type AgentMap = TMVar (Map.Map AgentHandle Int)
-
-
 -- | Decrement reference counter for an agent. If no references left,
 -- release control over agent. Return how many references are left.
-releaseAgentRef :: MonadLoggerIO m => AgentHandle -> AgentMap -> m Int
+releaseAgentRef :: (MonadLoggerIO m, MonadMask m) => AgentHandle -> AgentMap -> m Int
 releaseAgentRef ah refs = do
-  r <- liftIO . atomically $ takeTMVar refs
-  liftIO $ flip onException (atomically $ putTMVar refs r) $
+  r <- atomically $ takeTMVar refs
+  flip onException (atomically $ putTMVar refs r) $
     case Map.lookup ah r of
       Just cnt -> do
         newR <-
           if cnt > 1
-          then pure $ Map.insert ah (cnt - 1) r
-          else runStdoutLoggingT $ releaseAgent ah >>
-               runStdoutLoggingT (CS.logDebug (T.pack $ "Agent " ++ show ah ++ " is no longer controlled")) >>
-               pure (Map.delete ah r)
-        liftIO . atomically $ putTMVar refs newR
+             then pure $ Map.insert ah (cnt - 1) r
+             else do releaseAgent ah
+                     CS.logDebug $ "Agent " <> fromString (show ah) <> " is no longer controlled"
+                     pure $ Map.delete ah r
+
+        atomically $ putTMVar refs newR
         pure $ cnt - 1
-      Nothing -> error $ "Releasing unknown agent " ++ show ah
+
+      Nothing -> error $ "Releasing unknown agent " <> show ah
 
 
-avayaApplication :: Config
+avayaApplication :: (MonadLoggerIO m, MonadMask m, MonadBaseControl IO m)
+                 => Config
                  -> Session
                  -- ^ DMCC session.
                  -> AgentMap
                  -- ^ Reference-counting map of used agent ids.
-                 -> ServerApp
-avayaApplication Config{..} as refs pending = do
-  let rq = pendingRequest pending
-      pathArg = map (fmap fst . B.readInt) $ B.split '/' $ requestPath rq
-      refReport ext cnt =
-        CS.logDebug (T.pack $ show ext ++ " has " ++ show cnt ++ " references")
+                 -> PendingConnection
+                 -> m ()
+avayaApplication Config{..} as refs pending =
   case pathArg of
     [Nothing, Just ext] -> do
       -- A readable label for this connection for debugging purposes
-      token <- randomRIO (1, 16 ^ (4 :: Int))
-      let label = printf "%d/%04x" ext (token :: Int)
+      token <- liftIO $ randomRIO (1, 16 ^ (4 :: Int))
+
+      let label = T.pack $ printf "%d/%04x" ext (token :: Int)
           -- Assume that all agents are on the same switch
           ext' = Extension $ T.pack $ show ext
-      conn <- acceptRequest pending
-      runStdoutLoggingT $ CS.logError (T.pack $ "New websocket opened for " ++ label)
-      -- Create a new agent reference, possibly establishing control
-      -- over the agent
+
+      conn <- liftIO $ acceptRequest pending
+      CS.logError $ "New websocket opened for " <> label
+
+      -- Create a new agent reference, possibly establishing control over the agent
       r <- atomically $ takeTMVar refs
+
       let initialHandler = do
-            runStdoutLoggingT $ CS.logDebug (T.pack $ "Exception when plugging " ++ label)
+            CS.logDebug $ "Exception when plugging " <> label
             atomically $ putTMVar refs r
-            runStdoutLoggingT $ CS.logDebug (T.pack $ "Restored agent references map to " ++ show r)
-      (ah, evThread) <- (`onException` initialHandler) $ do
-        cRsp <- runStdoutLoggingT $ controlAgent switchName ext' as
+            CS.logDebug $ "Restored agent references map to " <> fromString (show r)
+
+      (ah, evThread) <- flip onException initialHandler $ do
+        cRsp <- controlAgent switchName ext' as
         ah <- case cRsp of
                 Right ah' -> pure ah'
                 Left err -> do
-                  sendTextData conn $ encode $ RequestError $ show err
-                  runStdoutLoggingT $ CS.logError (T.pack $ "Could not control agent for " ++ label ++ ": " ++ show err)
+                  liftIO $ sendTextData conn $ encode $ RequestError $ show err
+
+                  CS.logError $
+                    "Could not control agent for " <> label <> ": " <> fromString (show err)
+
                   throwIO err
+
         -- Increment reference counter
         let oldCount = fromMaybe 0 $ Map.lookup ah r
-        atomically $ putTMVar refs (Map.insert ah (oldCount + 1) r)
-        runStdoutLoggingT $ CS.logDebug (T.pack $ "Controlling agent " ++ show ah ++ " from " ++ label)
-        runStdoutLoggingT $ refReport ext' (oldCount + 1)
+        atomically $ putTMVar refs $ Map.insert ah (oldCount + 1) r
+        CS.logDebug $ "Controlling agent " <> fromString (show ah) <> " from " <> label
+        refReport ext' $ oldCount + 1
+
         -- Agent events loop
-        evThread <- runStdoutLoggingT $ handleEvents ah
-          (\ev ->
-             do
-               runStdoutLoggingT $ CS.logInfo (T.pack $ "Event for " ++ label ++ ": " ++ show ev)
-               sendTextData conn $ encode ev)
-        runStdoutLoggingT $ CS.logDebug (T.pack $ show evThread ++ " handles events for " ++ label)
+        evThread <-
+          handleEvents ah $ \ev -> do
+            CS.logInfo $ "Event for " <> label <> ": " <> fromString (show ev)
+            liftIO $ sendTextData conn $ encode ev
+
+        CS.logDebug $ fromString (show evThread) <> " handles events for " <> label
         pure (ah, evThread)
 
       let disconnectionHandler = do
-            runStdoutLoggingT $ CS.logDebug (T.pack $ "Websocket closed for " ++ label)
+            CS.logDebug $ "Websocket closed for " <> label
             killThread evThread
             threadDelay $ refDelay * 1000000
             -- Decrement reference counter when the connection dies or any
             -- other exception happens
-            runStdoutLoggingT $ releaseAgentRef ah refs >>= runStdoutLoggingT . refReport ext'
+            releaseAgentRef ah refs >>= refReport ext'
+
       handle (\(_ :: ConnectionException) -> disconnectionHandler) $ do
-        s <- runStdoutLoggingT $ getAgentSnapshot ah
-        sendTextData conn $ encode s
+        s <- getAgentSnapshot ah
+        liftIO $ sendTextData conn $ encode s
+
         -- Agent actions loop
         forever $ do
-          msg <- receiveData conn
+          msg <- liftIO $ receiveData conn
+
           case eitherDecode msg of
             Right act -> do
-              runStdoutLoggingT $ CS.logDebug (T.pack $ "Action from " ++ label ++ ": " ++ show act)
-              runStdoutLoggingT $ agentAction act ah
+              CS.logDebug $ "Action from " <> label <> ": " <> fromString (show act)
+              agentAction act ah
+
             Left e -> do
-              runStdoutLoggingT $ CS.logDebug (T.pack $ "Unrecognized message from " ++ label ++ ": " ++
-                BL.unpack msg ++ " (" ++ e ++ ")")
-              sendTextData conn $ encode $
-                Map.fromList [("errorText" :: String, e)]
-    _ -> rejectRequest pending "Malformed extension number"
+              CS.logDebug
+                $ "Unrecognized message from " <> label <> ": "
+                <> fromString (BL.unpack msg) <> " (" <> fromString e <> ")"
+
+              liftIO $ sendTextData conn $ encode $ Map.fromList [("errorText" :: String, e)]
+
+    _ -> liftIO $ rejectRequest pending "Malformed extension number"
+
+  where
+    pathArg = map (fmap fst . B.readInt) $ B.split '/' $ requestPath $ pendingRequest pending
+
+    refReport ext cnt = CS.logDebug $
+      fromString (show ext) <> " has " <> fromString (show cnt) <> " references"
