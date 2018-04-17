@@ -5,9 +5,8 @@
 This package contains a Haskell library which can be used to implement
 computer telephony integration using AVAYA DMCC XML API. A simple
 server (dmcc-ws) built atop the library is also included. The server
-allows clients to connect using WebSockets and exchange JSON messages
-with the server to control AVAYA agents and receive event
-notifications and agent state updates.
+allows clients use JSON-over-WebSockets to control AVAYA agents,
+receive event notifications and agent state updates.
 
 The package uses third-party call control functions. There's no
 first-party call control support and no access to media streams.
@@ -16,7 +15,7 @@ AVAYA DMCC XML API is largely based on ECMA-354 (CSTA Phase III)
 standard, so in theory the package can be used with other compliant
 telephony solutions.
 
-# Installation-specific notes
+## Site-specific notes
 
 One basic TSAPI license is consumed for every agent controlled by
 the library.
@@ -24,11 +23,7 @@ the library.
 DMCC 6.x is supported. Consult your Avaya AES administration page to
 check for software versions and available licenses.
 
-# Haskell library
-
-Use Haddock to build docs.
-
-# dmcc-ws server
+## dmcc-ws server
 
 The server exposes portions of Haskell library interface via
 WebSockets using JSON messages for client-server exchange. Its purpose
@@ -78,3 +73,11 @@ The server reports telephony events along with updated agent snapshot:
 
 Client applications may use events to update their interface or
 process the whole state every time an event arrives.
+
+## macOS
+
+On macOS with `openssl` installed via Homebrew, build with
+
+```bash
+stack build --extra-include-dirs=/usr/local/opt/openssl/include/ --extra-lib-dirs=/usr/local/opt/openssl/lib/
+```
