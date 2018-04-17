@@ -23,6 +23,7 @@ default-extensions:
 
 ghc-options:
   - -Wall
+  - -Wcompat
   - -fno-warn-unused-do-bind
   - -threaded
 
