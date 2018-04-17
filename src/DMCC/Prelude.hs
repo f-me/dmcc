@@ -1,5 +1,4 @@
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 
 module DMCC.Prelude
   ( module ClassyPrelude
