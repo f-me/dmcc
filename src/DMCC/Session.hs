@@ -223,14 +223,14 @@ startSession (host, port) ct user pass whUrl sopts = do
       startRsp <- startReq old
       case (startRsp, old) of
         (Just Rs.StartApplicationSessionPosResponse{..}, _) -> do
-          sessionMonitorReq actualProtocolVersion
+          _ <- sessionMonitorReq actualProtocolVersion
           pure ((sessionID, actualSessionDuration), actualProtocolVersion)
         (Just Rs.StartApplicationSessionNegResponse, Just oldID) -> do
           -- The old session has expired, start from scratch
           startRsp' <- startReq Nothing
           case startRsp' of
             Just Rs.StartApplicationSessionPosResponse{..} -> do
-              sessionMonitorReq actualProtocolVersion
+              _ <- sessionMonitorReq actualProtocolVersion
               -- Transfer MonitorObjects from old session
               sendRequestAsyncRaw
                 conn

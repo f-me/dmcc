@@ -24,8 +24,7 @@ default-extensions:
 ghc-options:
   - -Wall
   - -Wcompat
-  - -fno-warn-unused-do-bind
-  - -threaded
+  - -Werror
 
 dependencies:
   - aeson
@@ -68,3 +67,5 @@ executables:
       - stm
     other-modules:
       - Paths_dmcc
+    ghc-options:
+      - -threaded
