@@ -106,8 +106,7 @@ data Session = Session
 
 
 instance Show Session where
-  show as =
-    "Session{protocolVersion=" ++ unpack (protocolVersion as) ++ "}"
+  show as = "Session{protocolVersion=" <> unpack (protocolVersion as) <> "}"
 
 
 data LoopEvent
@@ -175,18 +174,18 @@ startSession (host, port) ct user pass whUrl sopts = do
               is <- handleToInputStream h
               os <- handleToOutputStream h
               let cl = hClose h
-              return (is, os, cl)
+              pure (is, os, cl)
             TLS caDir -> withOpenSSL $ do
               sslCtx <- SSL.context
               SSL.contextSetDefaultCiphers sslCtx
               SSL.contextSetVerificationMode sslCtx $
                 SSL.VerifyPeer True True Nothing
-              maybe (return ()) (SSL.contextSetCADirectory sslCtx) caDir
+              maybe (pure ()) (SSL.contextSetCADirectory sslCtx) caDir
               (is, os, ssl) <- SSLStreams.connect sslCtx host port
               let cl = do
                     SSL.shutdown ssl SSL.Unidirectional
-                    maybe (return ()) close $ SSL.sslSocket ssl
-              return (is, os, cl)
+                    maybe (pure ()) close $ SSL.sslSocket ssl
+              pure (is, os, cl)
 
     -- Start new DMCC session
     startDMCCSession :: (MonadCatchLoggerIO m, MonadBaseControl IO m)
@@ -226,7 +225,7 @@ startSession (host, port) ct user pass whUrl sopts = do
       case (startRsp, old) of
         (Just Rs.StartApplicationSessionPosResponse{..}, _) -> do
           sessionMonitorReq actualProtocolVersion
-          return ((sessionID, actualSessionDuration), actualProtocolVersion)
+          pure ((sessionID, actualSessionDuration), actualProtocolVersion)
         (Just Rs.StartApplicationSessionNegResponse, Just oldID) -> do
           -- The old session has expired, start from scratch
           startRsp' <- startReq Nothing
@@ -244,7 +243,7 @@ startSession (host, port) ct user pass whUrl sopts = do
                 , toSessionID = sessionID
                 , acceptedProtocol = actualProtocolVersion
                 }
-              return ((sessionID, actualSessionDuration), actualProtocolVersion)
+              pure ((sessionID, actualSessionDuration), actualProtocolVersion)
             _ -> throwIO ApplicationSessionFailed
         _ -> throwIO ApplicationSessionFailed
 
@@ -258,7 +257,7 @@ startSession (host, port) ct user pass whUrl sopts = do
       (oldId, cl) <- atomically $ do
         (oldId, _) <- takeTMVar sess
         (_, _, cl) <- takeTMVar conn
-        return (oldId, cl)
+        pure (oldId, cl)
       -- Fail all pending synchronous requests
       atomically $ do
         srs <- readTVar syncResponses
@@ -273,7 +272,7 @@ startSession (host, port) ct user pass whUrl sopts = do
       connect >>= atomically . putTMVar conn
       logWarnN "Connection re-established"
       let
-        shdl (Right ()) = return ()
+        shdl (Right ()) = pure ()
         shdl (Left e) = throwIO e
       -- Fork new thread for DMCC session initialization. This is
       -- because 'reconnect' needs to return for response reader
@@ -308,26 +307,26 @@ startSession (host, port) ct user pass whUrl sopts = do
         sync' <- atomically $ do
           srs <- readTVar syncResponses
           modifyTVar' syncResponses (IntMap.delete invokeId)
-          return $ IntMap.lookup invokeId srs
+          pure $ IntMap.lookup invokeId srs
         case sync' of
           Just sync -> void $ atomically $ tryPutTMVar sync $ Just rsp
-          Nothing -> return ()
+          Nothing -> pure ()
         -- Redirect events and request errors to matching agent
         ag' <- case rsp of
                  Rs.EventResponse monId _ ->
-                   return $ find (\a -> monId == monitorId a) $ Map.elems ags
+                   pure $ find (\a -> monId == monitorId a) $ Map.elems ags
                  Rs.CSTAErrorCodeResponse _ -> do
                    aid <- atomically $ do
                      ars <- readTVar agentRequests
                      modifyTVar' agentRequests (IntMap.delete invokeId)
-                     return $ IntMap.lookup invokeId ars
-                   return $ (`Map.lookup` ags) =<< aid
-                 _ -> return Nothing
+                     pure $ IntMap.lookup invokeId ars
+                   pure $ (`Map.lookup` ags) =<< aid
+                 _ -> pure Nothing
         case ag' of
           Just ag -> atomically $ writeTChan (rspChan ag) rsp
           -- Error/event received for an unknown agent?
-          Nothing -> return ()
-      _ -> return ()
+          Nothing -> pure ()
+      _ -> pure ()
 
   -- Keep the session alive
   pingThread <- fork $ forever $ do
@@ -361,12 +360,12 @@ startSession (host, port) ct user pass whUrl sopts = do
           Just url -> do
             mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
             req <- HTTP.parseUrlThrow url
-            return $ Just (req, mgr)
-          Nothing -> return Nothing
+            pure $ Just (req, mgr)
+          Nothing -> pure Nothing
 
   agLocks <- newTVarIO Set.empty
 
-  return $
+  pure $
     Session
     actualProtocolVersion
     h
@@ -450,9 +449,9 @@ sendRequestSyncRaw connection re invoke srs ar !rq = do
     modifyTVar' srs (IntMap.insert ix var)
     case ar of
       Just (ars, a) -> modifyTVar' ars (IntMap.insert ix a)
-      Nothing -> return ()
+      Nothing -> pure ()
     c <- takeTMVar connection
-    return (ix, var, c)
+    pure (ix, var, c)
   let
     srHandler e = do
       logErrorN $ "Write error: " <> tshow e
@@ -462,7 +461,7 @@ sendRequestSyncRaw connection re invoke srs ar !rq = do
         modifyTVar' srs $ IntMap.delete ix
         case ar of
           Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
-          Nothing -> return ()
+          Nothing -> pure ()
       re
   handleNetwork srHandler $ Raw.sendRequest ostream ix rq
   -- Release the connection at once and wait for response in a
@@ -505,9 +504,9 @@ sendRequestAsyncRaw connection re invoke ar !rq = do
     ix <- readTVar invoke
     case ar of
       Just (ars, a) -> modifyTVar' ars (IntMap.insert ix a)
-      Nothing -> return ()
+      Nothing -> pure ()
     c <- takeTMVar connection
-    return (ix, c)
+    pure (ix, c)
   let
     srHandler e = do
       logErrorN $ "Write error: " <> tshow e
@@ -515,7 +514,7 @@ sendRequestAsyncRaw connection re invoke ar !rq = do
         putTMVar connection c
         case ar of
           Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
-          Nothing -> return ()
+          Nothing -> pure ()
       re
   handleNetwork srHandler $ Raw.sendRequest ostream ix rq
   atomically $ putTMVar connection c

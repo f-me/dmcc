@@ -54,8 +54,7 @@ newtype Extension =
 instance FromJSON Extension where
   parseJSON (A.String s)
     | T.length s > 30 = fail "Maximum extension length is 30 digits"
-    | (\c -> c `elem` (['0'..'9'] ++ ['*', '#'])) `T.all` s =
-      return $ Extension s
+    | (\c -> c `elem` (['0'..'9'] <> ['*', '#'])) `T.all` s = pure $ Extension s
     | otherwise = fail "Extension must contain the digits 0-9, * or #"
   parseJSON _ = fail "Could not parse extension"
 
@@ -118,7 +117,7 @@ instance ToJSON AgentState where
 
 
 instance FromJSON AgentState where
-  parseJSON (String "Busy") = return Busy
+  parseJSON (String "Busy") = pure Busy
   parseJSON s@(String _)    = Settable <$> parseJSON s
   parseJSON _               = fail "Could not parse AgentState"
 

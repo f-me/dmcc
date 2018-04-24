@@ -6,5 +6,5 @@ import           DMCC.Prelude
 import           DMCC.Types
 
 maybeSyslog :: MonadLogger m => Maybe LoggingOptions -> String -> m ()
-maybeSyslog Nothing _ = return ()
-maybeSyslog (Just LoggingOptions{..}) msg = logInfo (T.pack msg)
+maybeSyslog Nothing _ = pure ()
+maybeSyslog (Just LoggingOptions{..}) msg = logInfo $ T.pack msg
