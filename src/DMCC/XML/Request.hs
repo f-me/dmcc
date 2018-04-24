@@ -9,7 +9,7 @@ module DMCC.XML.Request
 
 where
 
-import           ClassyPrelude
+import           DMCC.Prelude
 
 import qualified Data.ByteString.Lazy as L
 import           Data.CaseInsensitive

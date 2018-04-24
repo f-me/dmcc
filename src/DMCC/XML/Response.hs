@@ -3,14 +3,14 @@
 {-| Incoming XML messages (responses and events). -}
 
 module DMCC.XML.Response
-    ( Response(..)
-    , Event(..)
+    ( Response (..)
+    , Event (..)
     , fromXml
     )
 
 where
 
-import           ClassyPrelude
+import           DMCC.Prelude
 
 import           Control.Exception (SomeException)
 import           Data.CaseInsensitive (mk)

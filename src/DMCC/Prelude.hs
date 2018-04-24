@@ -3,7 +3,7 @@
 module DMCC.Prelude
   ( module ClassyPrelude
   , module Control.Concurrent.STM.Lifted
-  , MonadCatchLoggerIO
+  , module Control.Monad.Logger
   )
 
 where
@@ -20,5 +20,3 @@ import ClassyPrelude hiding ( atomically
                             )
 import Control.Concurrent.STM.Lifted
 import Control.Monad.Logger
-
-type MonadCatchLoggerIO m = (MonadCatch m, MonadLoggerIO m)
