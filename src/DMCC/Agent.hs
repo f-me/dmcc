@@ -211,7 +211,7 @@ controlAgent switch ext as = do
                   then pure $ Just aid
                   else placeAgentLock ah >> pure Nothing
                        -- Prevent parallel operation on the same agent
-                       -- ^ TODO FIXME To what this comment is attached to?
+                       -- TODO FIXME To what this comment above is attached to?
   case prev of
     Just a -> pure $ Right $ AgentHandle (a, as)
     Nothing -> try $ flip onException (releaseAgentLock ah) $
