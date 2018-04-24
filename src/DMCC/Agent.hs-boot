@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module DMCC.Agent
 
 where
@@ -24,4 +26,4 @@ monitorId :: Agent -> Text
 rspChan :: Agent -> TChan Rs.Response
 
 
-releaseAgent :: MonadLoggerIO m => AgentHandle -> m ()
+releaseAgent :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m) => AgentHandle -> m ()
