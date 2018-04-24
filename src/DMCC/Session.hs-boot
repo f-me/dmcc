@@ -2,7 +2,7 @@ module DMCC.Session
 
 where
 
-import ClassyPrelude
+import           DMCC.Prelude
 
 data Session
 

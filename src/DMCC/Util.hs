@@ -1,10 +1,11 @@
 module DMCC.Util where
 
-import           Data.Text as T
-import           Control.Monad.Logger.CallStack
 import           DMCC.Prelude
+
+import           Data.Text as T
+import           Control.Monad.Logger.CallStack as CS
 import           DMCC.Types
 
 maybeSyslog :: MonadLogger m => Maybe LoggingOptions -> String -> m ()
 maybeSyslog Nothing _ = pure ()
-maybeSyslog (Just LoggingOptions{..}) msg = logInfo $ T.pack msg
+maybeSyslog (Just LoggingOptions{..}) msg = CS.logInfo $ T.pack msg

@@ -13,12 +13,10 @@ module DMCC.Agent
 
 where
 
-import           ClassyPrelude
+import           DMCC.Prelude
 
 import           Control.Lens
-import           Control.Concurrent (forkIO)
 import           Control.Concurrent.STM (retry)
-import           Control.Monad.Logger
 
 import           Data.Aeson as A
 import           Data.Aeson.TH
@@ -32,8 +30,7 @@ import           Network.HTTP.Client (httpNoBody, method, requestBody)
 
 import           DMCC.Session
 import           DMCC.Types
-import           DMCC.Util()
-import           DMCC.Prelude (MonadCatchLoggerIO, MonadBaseControl, liftIO)
+import           DMCC.Util ()
 import qualified DMCC.XML.Request as Rq
 import qualified DMCC.XML.Response as Rs
 
@@ -195,7 +192,7 @@ releaseAgentLock (AgentHandle (aid, as)) =
 -- DMCC API. If the agent has already been registered, return the old
 -- entry (it's safe to call this function with the same arguments
 -- multiple times).
-controlAgent :: MonadCatchLoggerIO m =>
+controlAgent :: MonadLoggerIO m =>
                 SwitchName
              -> Extension
              -> Session
@@ -256,7 +253,7 @@ controlAgent switch ext as = do
 
         actionChan <- newTChanIO
         actionThread <-
-          forkIO $ forever $
+          fork $ forever $
           atomically (readTChan actionChan) >>=
           runStdoutLoggingT . processAgentAction aid device snapshot as
 
@@ -264,7 +261,7 @@ controlAgent switch ext as = do
 
         rspChan <- newTChanIO
         rspThread <-
-          forkIO $ forever $
+          fork $ forever $
           atomically (readTChan rspChan) >>=
           runStdoutLoggingT . processAgentEvent aid device snapshot eventChan as
 
@@ -290,7 +287,7 @@ controlAgent switch ext as = do
             throwIO $ DeviceError "Bad GetAgentState response"
         -- State polling thread
         stateThread <-
-          forkIO $ forever $ do
+          fork $ forever $ do
             gsRsp <- runStdoutLoggingT . sendRequestSync (dmccHandle as) (Just aid) $
               Rq.GetAgentState
               { device = device
@@ -334,8 +331,7 @@ controlAgent switch ext as = do
 -- | Translate agent actions into actual DMCC API requests.
 --
 -- TODO Allow agents to control only own calls.
-processAgentAction :: (MonadCatchLoggerIO m,
-                       MonadBaseControl IO m) =>
+processAgentAction :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m) =>
                       AgentId
                    -> DeviceId
                    -> TVar AgentSnapshot
@@ -419,9 +415,8 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
 
 -- | Process DMCC API events/errors for this agent to change its snapshot
 -- and broadcast events further.
-processAgentEvent :: (MonadBaseControl IO m,
-                      MonadCatchLoggerIO m) =>
-                     AgentId
+processAgentEvent :: (MonadBaseControl IO m, MonadLoggerIO m, MonadCatch m)
+                  => AgentId
                   -> DeviceId
                   -> TVar AgentSnapshot
                   -> TChan AgentEvent

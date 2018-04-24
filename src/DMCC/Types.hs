@@ -8,7 +8,7 @@ module DMCC.Types
 
 where
 
-import ClassyPrelude
+import DMCC.Prelude
 
 import Data.Aeson as A
 import Data.Aeson.TH

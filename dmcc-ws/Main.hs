@@ -10,8 +10,8 @@ WebSockets interface for DMCC.
 
 module Main where
 
-import           Control.Monad
-import           Control.Monad.Logger
+import           DMCC.Prelude hiding (getArgs)
+
 import           Control.Monad.Logger.CallStack as CS
 
 import           Data.Aeson hiding (Error)
@@ -19,7 +19,6 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Configurator as Cfg
 import qualified Data.Map as Map
-import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Version (showVersion)
@@ -35,7 +34,6 @@ import           Text.Printf
 
 import           Paths_dmcc
 import           DMCC
-import           DMCC.Prelude hiding (getArgs)
 
 
 data Config = Config

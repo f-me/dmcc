@@ -5,9 +5,9 @@ Types and instances for implementing webhook interface for DMCC.
 -}
 
 module DMCC.WebHook
-  ( WHEvent(..)
-  , AgentEvent(..)
-  , Event(..)
+  ( WHEvent (..)
+  , AgentEvent (..)
+  , Event (..)
   )
 
 where
