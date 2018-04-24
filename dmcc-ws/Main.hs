@@ -77,7 +77,7 @@ type AgentMap = TMVar (Map.Map AgentHandle Int)
 
 
 -- | Read config and actually start the server
-realMain :: (MonadLoggerIO m, MonadMask m, MonadBaseControl IO m)
+realMain :: (MonadUnliftIO m, MonadLoggerIO m, MonadMask m, MonadBaseControl IO m)
          => (m () -> IO ())
          -> FilePath
          -> m ()
@@ -128,7 +128,7 @@ realMain logger config = do
 
 -- | Decrement reference counter for an agent. If no references left,
 -- release control over agent. Return how many references are left.
-releaseAgentRef :: (MonadLoggerIO m, MonadMask m, MonadBaseControl IO m)
+releaseAgentRef :: (MonadUnliftIO m, MonadLoggerIO m, MonadMask m, MonadBaseControl IO m)
                 => AgentHandle -> AgentMap -> m Int
 releaseAgentRef ah refs = do
   r <- atomically $ takeTMVar refs
@@ -148,7 +148,7 @@ releaseAgentRef ah refs = do
       Nothing -> error $ "Releasing unknown agent " <> show ah
 
 
-avayaApplication :: (MonadLoggerIO m, MonadMask m, MonadBaseControl IO m)
+avayaApplication :: (MonadUnliftIO m, MonadLoggerIO m, MonadMask m, MonadBaseControl IO m)
                  => Config
                  -> Session
                  -- ^ DMCC session.

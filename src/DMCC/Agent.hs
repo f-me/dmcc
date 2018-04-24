@@ -193,7 +193,7 @@ releaseAgentLock (AgentHandle (aid, as)) =
 -- DMCC API. If the agent has already been registered, return the old
 -- entry (it's safe to call this function with the same arguments
 -- multiple times).
-controlAgent :: (MonadLoggerIO m, MonadBaseControl IO m, MonadMask m)
+controlAgent :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadMask m)
              => SwitchName
              -> Extension
              -> Session
@@ -256,7 +256,7 @@ controlAgent switch ext as = do
 
         actionChan <- newTChanIO
         actionThread <-
-          fork $ forever $
+          forkIO $ forever $
           atomically (readTChan actionChan) >>=
           processAgentAction aid device snapshot as
 
@@ -264,7 +264,7 @@ controlAgent switch ext as = do
 
         rspChan <- newTChanIO
         rspThread <-
-          fork $ forever $
+          forkIO $ forever $
           atomically (readTChan rspChan) >>=
           processAgentEvent aid device snapshot eventChan as
 
@@ -290,7 +290,7 @@ controlAgent switch ext as = do
             throwIO $ DeviceError "Bad GetAgentState response"
         -- State polling thread
         stateThread <-
-          fork $ forever $ do
+          forkIO $ forever $ do
             gsRsp <- sendRequestSync (dmccHandle as) (Just aid)
               Rq.GetAgentState
               { device = device
@@ -330,7 +330,7 @@ controlAgent switch ext as = do
 -- | Translate agent actions into actual DMCC API requests.
 --
 -- TODO Allow agents to control only own calls.
-processAgentAction :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
+processAgentAction :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
                    => AgentId
                    -> DeviceId
                    -> TVar AgentSnapshot
@@ -407,7 +407,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
 
 -- | Process DMCC API events/errors for this agent to change its snapshot
 -- and broadcast events further.
-processAgentEvent :: (MonadBaseControl IO m, MonadLoggerIO m, MonadCatch m)
+processAgentEvent :: (MonadUnliftIO m, MonadBaseControl IO m, MonadLoggerIO m, MonadCatch m)
                   => AgentId
                   -> DeviceId
                   -> TVar AgentSnapshot
@@ -560,7 +560,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
 
 -- | Send agent event data to a web hook endpoint, ignoring possible
 -- exceptions.
-sendWH :: (MonadLoggerIO m, MonadCatch m)
+sendWH :: (MonadUnliftIO m, MonadLoggerIO m, MonadCatch m)
        => (HTTP.Request, HTTP.Manager)
        -> AgentId
        -> AgentEvent
@@ -574,7 +574,8 @@ sendWH (req, mgr) aid payload =
 
 
 -- | Forget about an agent, releasing his device and monitors.
-releaseAgent :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m) => AgentHandle -> m ()
+releaseAgent :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
+             => AgentHandle -> m ()
 releaseAgent ah@(AgentHandle (aid, as)) = do
   prev <- atomically $ do
     locks <- readTVar $ agentLocks as
