@@ -136,8 +136,8 @@ data Agent = Agent
 
 instance Show Agent where
   show (Agent (DeviceId d) m _ _ _ _ _ _ _) =
-    "Agent{deviceId=" ++ unpack (original d) ++
-    ", monitorId=" ++ unpack m ++
+    "Agent{deviceId=" <> unpack (original d) <>
+    ", monitorId=" <> unpack m <>
     "}"
 
 
@@ -208,12 +208,12 @@ controlAgent switch ext as = do
     locks <- readTVar (agentLocks as)
     if Set.member aid locks then retry else
       (do ags <- readTVar (agents as)
-          if Map.member aid ags then return $ Just aid else
-            placeAgentLock ah >> return Nothing)
+          if Map.member aid ags then pure $ Just aid else
+            placeAgentLock ah >> pure Nothing)
         -- Prevent parallel operation on the same agent
 
   case prev of
-    Just a -> return $ Right $ AgentHandle (a, as)
+    Just a -> pure $ Right $ AgentHandle (a, as)
     Nothing -> liftIO . try $ flip onException ((runStdoutLoggingT . releaseAgentLock) ah) $
       do
         -- Get Avaya info for this agent (note that requests are not
@@ -229,7 +229,7 @@ controlAgent switch ext as = do
         device <-
           case gdiRsp of
             Just (Rs.GetDeviceIdResponse device) ->
-              return device
+              pure device
             Just (Rs.CSTAErrorCodeResponse errorCode) ->
               throwIO $ DeviceError $ unpack errorCode
             _ ->
@@ -245,7 +245,7 @@ controlAgent switch ext as = do
         monitorCrossRefID <-
           case msrRsp of
             Just (Rs.MonitorStartResponse monitorCrossRefID) ->
-              return monitorCrossRefID
+              pure monitorCrossRefID
             Just (Rs.CSTAErrorCodeResponse errorCode) ->
               throwIO $ MonitoringError $ unpack errorCode
             _ ->
@@ -305,14 +305,14 @@ controlAgent switch ext as = do
                         readTVar snapshot >>=
                           \ newSnapshot ->
                             do writeTChan eventChan $ StateChange newSnapshot
-                               return $ Just newSnapshot)
-                  else return Nothing
+                               pure $ Just newSnapshot)
+                  else pure Nothing
                 case (ns, webHook as) of
                   (Just ns', Just connData) ->
                     runStdoutLoggingT (sendWH connData aid (StateChange ns'))
-                  _ -> return ()
+                  _ -> pure ()
               -- Ignore state errors
-              _ -> return ()
+              _ -> pure ()
             threadDelay $
               statePollingDelay (sessionOptions $ dmccHandle as) * 1000000
 
@@ -328,7 +328,7 @@ controlAgent switch ext as = do
                  snapshot
         atomically $ modifyTVar' (agents as) (Map.insert aid ag)
         (runStdoutLoggingT . releaseAgentLock) ah
-        return ah
+        pure ah
 
 
 -- | Translate agent actions into actual DMCC API requests.
@@ -375,8 +375,8 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
                     Call Out ucid now [destDev] Nothing False False
               liftIO . atomically $
                 modifyTVar' snapshot (calls %~ Map.insert callId call)
-            _ -> return ()
-        _ -> return ()
+            _ -> pure ()
+        _ -> pure ()
     AnswerCall callId   -> simpleRequest Rq.AnswerCall callId
     HoldCall callId     -> simpleRequest Rq.HoldCall callId
     RetrieveCall callId -> simpleRequest Rq.RetrieveCall callId
@@ -399,8 +399,8 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
             Just call ->
               liftIO . atomically $
               modifyTVar' snapshot (calls %~ Map.insert callId call)
-            _ -> return ()
-        _ -> return ()
+            _ -> pure ()
+        _ -> pure ()
     ConferenceCall activeCall heldCall ->
       simpleRequest2 Rq.ConferenceCall activeCall heldCall
     TransferCall activeCall heldCall ->
@@ -460,7 +460,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
     -- UCID.
     Rs.EventResponse _ ev@Rs.OriginatedEvent{..} -> do
       s <- (liftIO . readTVarIO) snapshot
-      updSnapshot' <- if Map.member callId (_calls s) then return s else
+      updSnapshot' <- if Map.member callId (_calls s) then pure s else
         (do Just gcldr <- runStdoutLoggingT .
                             sendRequestSync (dmccHandle as) (Just aid)
                             $ Rq.GetCallLinkageData device callId (protocolVersion as)
@@ -473,13 +473,13 @@ processAgentEvent aid device snapshot eventChan as rs = do
                 _ -> do (liftIO . atomically) $
                           writeTChan eventChan $
                             TelephonyEventError "Bad GetCallLinkageDataResponse"
-                        return s)
+                        pure s)
       liftIO . atomically $ writeTChan eventChan $ TelephonyEvent ev s
       case webHook as of
         Just connData ->
           sendWH connData aid (TelephonyEvent ev updSnapshot')
         _ ->
-          return ()
+          pure ()
 
 
     -- All other telephony events
@@ -489,16 +489,16 @@ processAgentEvent aid device snapshot eventChan as rs = do
         report <- case ev of
           Rs.OriginatedEvent{..} ->
             -- Should have already been handled in a branch above
-            return True
+            pure True
           -- New call
           Rs.DeliveredEvent{..} -> do
             s <- readTVar snapshot
-            if Map.member callId $ _calls s then return False else
+            if Map.member callId $ _calls s then pure False else
               -- DeliveredEvent arrives after OriginatedEvent for
               -- outgoing calls too, but we keep the original call
               -- information.
               (do modifyTVar' snapshot (calls %~ Map.insert callId call)
-                  return True)
+                  pure True)
             where
               (dir, interloc) = if callingDevice == device
                                 then (Out, calledDevice)
@@ -506,34 +506,34 @@ processAgentEvent aid device snapshot eventChan as rs = do
               call = Call dir ucid now [interloc] Nothing False False
           Rs.DivertedEvent{..} -> do
             modifyTVar' snapshot $ calls %~ at callId .~ Nothing
-            return True
+            pure True
           Rs.EstablishedEvent{..} -> do
             callOperation callId
               (\call -> Map.insert callId call{answered = Just now})
               "Established connection to an undelivered call"
-            return True
+            pure True
           Rs.FailedEvent{..} -> do
             callOperation callId
               (\call -> Map.insert callId call{failed = True})
               "Failed an unknown call"
-            return True
+            pure True
           -- ConnectionCleared event arrives when line is put on HOLD too.
           -- A real call-ending ConnectionCleared is distinguished by its
           -- releasingDevice value.
           Rs.ConnectionClearedEvent{..} -> do
             let really = releasingDevice == device
             when really $ modifyTVar' snapshot (calls %~ at callId .~ Nothing)
-            return really
+            pure really
           Rs.HeldEvent{..} -> do
             callOperation callId
               (\call -> Map.insert callId call{held = True})
               "Held an undelivered call"
-            return True
+            pure True
           Rs.RetrievedEvent{..} -> do
             callOperation callId
               (\call -> Map.insert callId call{held = False})
               "Retrieved an undelivered call"
-            return True
+            pure True
           -- Conferencing call A to call B yields ConferencedEvent with
           -- primaryCall=B and secondaryCall=A, while call A dies.
           Rs.ConferencedEvent prim sec -> do
@@ -544,29 +544,29 @@ processAgentEvent aid device snapshot eventChan as rs = do
                 callOperation sec
                   (\call ->
                      Map.insert sec
-                     call{interlocutors = interlocutors oldCall ++
+                     call{interlocutors = interlocutors oldCall <>
                                           interlocutors newCall})
                   "Conferenced an undelivered call"
-                return True
+                pure True
               -- ConferencedEvent may also be produced after a new
               -- established call but not caused by an actual conference
               -- user request (recorder single-stepping in).
-              _ -> return False
+              _ -> pure False
           Rs.TransferedEvent prim sec -> do
             modifyTVar' snapshot $ calls %~ at prim .~ Nothing
             modifyTVar' snapshot $ calls %~ at sec .~ Nothing
-            return True
-          Rs.UnknownEvent -> return False
+            pure True
+          Rs.UnknownEvent -> pure False
         s <- readTVar snapshot
         when report $ writeTChan eventChan $ TelephonyEvent ev s
-        return (s, report)
+        pure (s, report)
       -- Call webhook if necessary
       case (webHook as, report) of
         (Just connData, True) ->
           sendWH connData aid (TelephonyEvent ev updSnapshot)
-        _ -> return ()
+        _ -> pure ()
     -- All other responses cannot arrive to an agent
-    _ -> return ()
+    _ -> pure ()
 
 
 -- | Send agent event data to a web hook endpoint, ignoring possible
@@ -595,8 +595,8 @@ releaseAgent ah@(AgentHandle (aid, as)) = do
     if Set.member aid locks then retry else
       (do ags <- readTVar (agents as)
           case Map.lookup aid ags of
-               Just ag -> placeAgentLock ah >> return (Just ag)
-               Nothing -> return Nothing)
+               Just ag -> placeAgentLock ah >> pure (Just ag)
+               Nothing -> pure Nothing)
 
   case prev of
     Nothing -> liftIO . throwIO $ UnknownAgent aid
@@ -617,7 +617,7 @@ releaseAgent ah@(AgentHandle (aid, as)) = do
           Rq.ReleaseDeviceId{device = deviceId ag}
         atomically $ modifyTVar' (agents as) (Map.delete aid)
         (runStdoutLoggingT . releaseAgentLock) ah
-        return ()
+        pure ()
 
 
 -- | Attach an event handler to an agent. Exceptions are not handled.
