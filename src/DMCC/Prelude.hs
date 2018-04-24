@@ -2,7 +2,12 @@
 
 module DMCC.Prelude
   ( module ClassyPrelude
-  , module Control.Concurrent.STM.Lifted
+  , module UnliftIO.IO
+  , module UnliftIO.STM
+  , module UnliftIO.Concurrent
+  , module Control.Monad.Base
+  , module Control.Monad.Trans.Control
+  , module Control.Exception.Safe
   , module Control.Monad.Logger
   )
 
@@ -17,6 +22,15 @@ import ClassyPrelude hiding ( atomically
                             , newTQueueIO
                             , newTVarIO
                             , readTVarIO
+                            , mkWeakTVar
+                            , mkWeakTMVar
+                            , registerDelay
                             )
-import Control.Concurrent.STM.Lifted
+
+import UnliftIO.IO
+import UnliftIO.STM
+import UnliftIO.Concurrent
+import Control.Monad.Base (MonadBase)
+import Control.Monad.Trans.Control (MonadBaseControl)
+import Control.Exception.Safe (MonadThrow, MonadCatch, MonadMask)
 import Control.Monad.Logger

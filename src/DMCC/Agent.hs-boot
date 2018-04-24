@@ -6,7 +6,6 @@ where
 
 import           DMCC.Prelude
 
-import           Control.Concurrent.STM.Lifted (TChan)
 import           Data.Text (Text)
 
 import           DMCC.Types
@@ -26,4 +25,5 @@ monitorId :: Agent -> Text
 rspChan :: Agent -> TChan Rs.Response
 
 
-releaseAgent :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m) => AgentHandle -> m ()
+releaseAgent :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
+             => AgentHandle -> m ()

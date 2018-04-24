@@ -29,6 +29,7 @@ where
 import           DMCC.Prelude
 
 import           Control.Arrow ()
+import           Control.Concurrent.STM.TMVar (tryPutTMVar)
 
 import           Data.ByteString (ByteString)
 import qualified Data.Map.Strict as Map
@@ -37,7 +38,6 @@ import qualified Data.IntMap.Strict as IntMap
 import           Data.Text as T (Text, empty)
 import           Data.Typeable ()
 
-import           System.IO
 import           System.IO.Streams ( InputStream
                                    , OutputStream
                                    , ReadTooShortException
@@ -76,7 +76,9 @@ data DMCCHandle = DMCCHandle
   -- ^ AVAYA server socket streams and connection cleanup action.
   , dmccSession :: TMVar (Text, Int)
   -- ^ DMCC session ID and duration.
-  , reconnect :: forall m. (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m) => m ()
+  , reconnect :: forall m
+               . (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
+              => m ()
   -- ^ Reconnect to AVAYA server, changing socket streams, cleanup
   -- action and session.
   , pingThread :: ThreadId
@@ -127,7 +129,7 @@ defaultSessionOptions :: SessionOptions
 defaultSessionOptions = SessionOptions 1 120 24 5
 
 
-startSession :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
+startSession :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
              => (String, PortNumber)
              -- ^ Host and port of AES server.
              -> ConnectionType
@@ -153,11 +155,11 @@ startSession (host, port) ct user pass whUrl sopts = do
 
   let
     -- Connect to the server, produce I/O streams and a cleanup action
-    connect :: (MonadBase IO m, MonadLoggerIO m, MonadCatch m) => m ConnectionData
+    connect :: (MonadUnliftIO m, MonadBase IO m, MonadLoggerIO m, MonadCatch m) => m ConnectionData
     connect = connect1 (connectionRetryAttempts sopts)
       where
         connectExHandler
-          :: ( Exception e, Show e, MonadLoggerIO m, MonadBase IO m, MonadCatch m)
+          :: (Exception e, Show e, MonadUnliftIO m, MonadLoggerIO m, MonadBase IO m, MonadCatch m)
           => Int -> e -> m ConnectionData
         connectExHandler attempts e = do
           logErrorN $ "Connection failed: " <> tshow e
@@ -187,7 +189,7 @@ startSession (host, port) ct user pass whUrl sopts = do
               pure (is, os, cl)
 
     -- Start new DMCC session
-    startDMCCSession :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
+    startDMCCSession :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
                      => Maybe Text
                      -- ^ Previous session ID (we attempt to recover
                      -- when this is given).
@@ -249,7 +251,7 @@ startSession (host, port) ct user pass whUrl sopts = do
     -- Restart I/O and DMCC session. This routine returns when new I/O
     -- streams become available (starting DMCC session requires
     -- response reader thread to be functional).
-    reconnect :: (MonadBaseControl IO m, MonadLoggerIO m, MonadCatch m) => m ()
+    reconnect :: (MonadUnliftIO m, MonadBaseControl IO m, MonadLoggerIO m, MonadCatch m) => m ()
     reconnect = do
       logWarnN "Attempting reconnection"
       -- Only one reconnection at a time
@@ -285,7 +287,7 @@ startSession (host, port) ct user pass whUrl sopts = do
         logErrorN $ "Read error: " <> tshow e
         reconnect
   readThread <-
-    fork $ forever $ do
+    forkIO $ forever $ do
       (istream, _, _) <- atomically $ readTMVar conn
       handleNetwork readExHandler $
         Raw.readResponse istream >>=
@@ -294,7 +296,7 @@ startSession (host, port) ct user pass whUrl sopts = do
   agents <- newTVarIO Map.empty
 
   -- Process parsed messages
-  procThread <- fork $ forever $ do
+  procThread <- forkIO $ forever $ do
     (msg, invokeId) <- atomically $ readTChan msgChan
     -- TODO Check agent locks?
     ags <- readTVarIO agents
@@ -326,9 +328,9 @@ startSession (host, port) ct user pass whUrl sopts = do
       _ -> pure ()
 
   -- Keep the session alive
-  pingThread <- fork $ forever $ do
+  pingThread <- forkIO $ forever $ do
     -- Do not send a keep-alive message if the session is not ready
-    (sid, duration) <- readTMVarIO sess
+    (sid, duration) <- atomically $ readTMVar sess
     sendRequestAsyncRaw conn reconnect invoke Nothing
       Rq.ResetApplicationSessionTimer
       { sessionId = sid
@@ -372,7 +374,8 @@ startSession (host, port) ct user pass whUrl sopts = do
 
 
 -- | TODO Agent releasing notice
-stopSession :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m) => Session -> m ()
+stopSession :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
+            => Session -> m ()
 stopSession as@Session{..} = do
   -- Release all agents
   ags <- readTVarIO agents
@@ -403,7 +406,7 @@ stopSession as@Session{..} = do
 -- Write errors are made explicit here because 'sendRequestSync' is
 -- called from multiple locations, making it tedious to install the
 -- reconnection handler everywhere.
-sendRequestSync :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
+sendRequestSync :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
                 => DMCCHandle
                 -> Maybe AgentId
                 -- ^ Push erroneous responses to this agent's event
@@ -424,7 +427,7 @@ sendRequestSync DMCCHandle{..} aid rq = do
     rq
 
 
-sendRequestSyncRaw :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
+sendRequestSyncRaw :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
                    => TMVar ConnectionData
                    -- ^ Block until this connection becomes available.
                    -> m ()
@@ -468,7 +471,7 @@ sendRequestSyncRaw connection re invoke srs ar !rq = do
 
 
 -- | Like 'sendRequestAsync', but do not wait for a result.
-sendRequestAsync :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
+sendRequestAsync :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
                  => DMCCHandle
                  -> Maybe AgentId
                  -- ^ Push erroneous responses to this agent's event
@@ -476,7 +479,7 @@ sendRequestAsync :: (MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
                  -> Request
                  -> m ()
 sendRequestAsync DMCCHandle{..} aid rq = do
-  void $ readTMVarIO dmccSession
+  _ <- atomically $ readTMVar dmccSession
   sendRequestAsyncRaw
     connection
     reconnect
@@ -485,7 +488,7 @@ sendRequestAsync DMCCHandle{..} aid rq = do
     rq
 
 
-sendRequestAsyncRaw :: (MonadLoggerIO m, MonadCatch m)
+sendRequestAsyncRaw :: (MonadUnliftIO m, MonadLoggerIO m, MonadCatch m)
                     => TMVar ConnectionData
                     -- ^ Block until this connection becomes available.
                     -> m ()
@@ -517,7 +520,7 @@ sendRequestAsyncRaw connection re invoke ar !rq = do
 
 
 -- | Handle network-related errors we know of.
-handleNetwork :: forall a m. (MonadLoggerIO m, MonadCatch m)
+handleNetwork :: forall a m. (MonadUnliftIO m, MonadLoggerIO m, MonadCatch m)
               => (forall e. (Exception e, Show e) => (e -> m a))
               -- ^ Exception handler.
               -> m a
