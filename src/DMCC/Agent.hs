@@ -454,27 +454,34 @@ processAgentEvent aid device snapshot eventChan as rs = do
     -- same AVAYA instance), we add the call after finding out its
     -- UCID.
     Rs.EventResponse _ ev@Rs.OriginatedEvent{..} -> do
-      s <- (liftIO . readTVarIO) snapshot
-      updSnapshot' <- if Map.member callId (_calls s) then pure s else
-        (do Just gcldr <- runStdoutLoggingT .
-                            sendRequestSync (dmccHandle as) (Just aid)
-                            $ Rq.GetCallLinkageData device callId (protocolVersion as)
-            case gcldr of
-                Rs.GetCallLinkageDataResponse ucid -> liftIO . atomically $
-                                                        do modifyTVar' snapshot
-                                                             (calls %~ Map.insert callId call)
-                                                           readTVar snapshot
-                  where call = Call Out ucid now [calledDevice] Nothing False False
-                _ -> do (liftIO . atomically) $
-                          writeTChan eventChan $
+      s <- liftIO $ readTVarIO snapshot
+
+      updSnapshot' <-
+        if Map.member callId $ _calls s
+           then pure s
+           else do gcldr <-
+                     runStdoutLoggingT
+                       $ sendRequestSync (dmccHandle as) (Just aid)
+                       $ Rq.GetCallLinkageData device callId (protocolVersion as)
+
+                   case gcldr of
+                        Just (Rs.GetCallLinkageDataResponse ucid) ->
+                          liftIO $ atomically $ do
+                            let call = Call Out ucid now [calledDevice] Nothing False False
+                            modifyTVar' snapshot $ calls %~ Map.insert callId call
+                            readTVar snapshot
+
+                        _ -> do
+                          liftIO $ atomically $ writeTChan eventChan $
                             TelephonyEventError "Bad GetCallLinkageDataResponse"
-                        pure s)
-      liftIO . atomically $ writeTChan eventChan $ TelephonyEvent ev s
+
+                          pure s
+
+      liftIO $ atomically $ writeTChan eventChan $ TelephonyEvent ev s
+
       case webHook as of
-        Just connData ->
-          sendWH connData aid (TelephonyEvent ev updSnapshot')
-        _ ->
-          pure ()
+        Just connData -> sendWH connData aid $ TelephonyEvent ev updSnapshot'
+        _             -> pure ()
 
 
     -- All other telephony events
