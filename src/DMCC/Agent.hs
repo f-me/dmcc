@@ -593,12 +593,12 @@ releaseAgent ah@(AgentHandle (aid, as)) = do
         killThread (actionThread ag)
         killThread (rspThread ag)
         killThread (stateThread ag)
-        sendRequestSync (dmccHandle as) (Just aid)
+        _ <- sendRequestSync (dmccHandle as) (Just aid)
           Rq.MonitorStop
           { acceptedProtocol = protocolVersion as
           , monitorCrossRefID = monitorId ag
           }
-        sendRequestSync (dmccHandle as) (Just aid)
+        _ <- sendRequestSync (dmccHandle as) (Just aid)
           Rq.ReleaseDeviceId{device = deviceId ag}
         atomically $ modifyTVar' (agents as) (Map.delete aid)
         releaseAgentLock ah
