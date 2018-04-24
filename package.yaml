@@ -25,6 +25,7 @@ ghc-options:
   - -Wall
   - -Wcompat
   - -Werror
+  - -Wno-missing-home-modules # fix for haddock (probably caused by *-boot files)
 
 dependencies:
   - aeson
