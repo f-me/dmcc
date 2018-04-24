@@ -128,7 +128,8 @@ realMain logger config = do
 
 -- | Decrement reference counter for an agent. If no references left,
 -- release control over agent. Return how many references are left.
-releaseAgentRef :: (MonadLoggerIO m, MonadMask m) => AgentHandle -> AgentMap -> m Int
+releaseAgentRef :: (MonadLoggerIO m, MonadMask m, MonadBaseControl IO m)
+                => AgentHandle -> AgentMap -> m Int
 releaseAgentRef ah refs = do
   r <- atomically $ takeTMVar refs
   flip onException (atomically $ putTMVar refs r) $
