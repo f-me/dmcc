@@ -38,8 +38,7 @@ import           DMCC
 import           DMCC.Prelude hiding (getArgs)
 
 
-data Config
-  = Config
+data Config = Config
   { listenPort :: Int
   , aesAddr    :: String
   , aesPort    :: Int
