@@ -296,22 +296,25 @@ fromXml xml
         _ -> UnknownResponse xml
 
 
+text :: Cursor -> Text -> Text
 text c n = textFromPath c n []
 
 
-decimal c n = let txt = text c n
-  in case T.decimal txt of
-    Right (x,"") -> x
-    _ -> error $ "Can't parse as decimal: " ++ show (txt :: Text)
+decimal :: Cursor -> Text -> Int
+decimal c n =
+  case T.decimal txt of
+    Right (x, "") -> x
+    _ -> error $ "Can't parse as decimal: " <> show txt
+  where
+    txt = text c n :: Text
 
 
 -- | Extract contents of the first element which matches provided
 -- path (@rootName:extraNames@). Return empty text if no element
 -- matches the path.
+textFromPath :: Cursor -> Text -> [Text] -> Text
 textFromPath cur rootName extraNames =
-  fromMaybe "" (headMay contents)
+  fromMaybe "" $ headMay contents
   where
     contents =
-      cur $//
-      (foldl1' (&/) (map laxElement (rootName:extraNames))
-       &/ content)
+      cur $// foldl1' (&/) (map laxElement $ rootName : extraNames) &/ content
