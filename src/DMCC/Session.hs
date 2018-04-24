@@ -289,9 +289,9 @@ startSession (host, port) ct user pass whUrl sopts = do
         logErrorN $ "Read error: " <> tshow e
         reconnect
   readThread <-
-    fork $ forever $ liftIO $ do
+    fork $ forever $ do
       (istream, _, _) <- atomically $ readTMVar conn
-      runStdoutLoggingT . handleNetwork readExHandler $
+      handleNetwork readExHandler $
         Raw.readResponse istream >>=
         atomically . writeTChan msgChan . first DMCCRsp
 
@@ -353,8 +353,8 @@ startSession (host, port) ct user pass whUrl sopts = do
           sopts
 
   -- Start the session
-  runStdoutLoggingT connect >>= atomically . putTMVar conn
-  (newSession, actualProtocolVersion) <- runStdoutLoggingT $ startDMCCSession Nothing
+  connect >>= atomically . putTMVar conn
+  (newSession, actualProtocolVersion) <- startDMCCSession Nothing
   atomically $ putTMVar sess newSession
 
   wh <- case whUrl of
@@ -381,7 +381,7 @@ stopSession as@Session{..} = do
   -- Release all agents
   ags <- readTVarIO agents
   (s, _) <- atomically $ readTMVar $ dmccSession dmccHandle
-  mapM_ (liftIO . runStdoutLoggingT . releaseAgent . (\aid -> AgentHandle (aid, as))) $ keys ags
+  forM_ (keys ags) $ releaseAgent . \aid -> AgentHandle (aid, as)
 
   sendRequestAsync dmccHandle Nothing Rq.StopApplicationSession{sessionID = s}
 
@@ -389,7 +389,7 @@ stopSession as@Session{..} = do
   killThread $ pingThread dmccHandle
   killThread $ procThread dmccHandle
   killThread $ readThread dmccHandle
-  (_, ostream, cleanup) <- atomically $ readTMVar (connection dmccHandle)
+  (_, ostream, cleanup) <- atomically $ readTMVar $ connection dmccHandle
   liftIO $ do
     write Nothing ostream
     cleanup
