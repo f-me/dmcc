@@ -120,7 +120,7 @@ realMain logger config = do
 
       handleSession s = do
         CS.logInfo $ "Running server for " <> fromString (show s)
-        (agentMap :: AgentMap) <- liftIO $ newTMVarIO Map.empty
+        (agentMap :: AgentMap) <- newTMVarIO Map.empty
         liftIO $ runServer "0.0.0.0" listenPort $ logger . avayaApplication cfg s agentMap
 
   bracket runSession releaseSession handleSession

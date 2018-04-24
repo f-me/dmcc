@@ -160,12 +160,10 @@ startSession (host, port) ct user pass whUrl sopts = do
           :: ( Exception e, Show e, MonadLoggerIO m, MonadBase IO m, MonadCatch m)
           => Int -> e -> m ConnectionData
         connectExHandler attempts e = do
-          logErrorN ("Connection failed: " <> tshow e)
+          logErrorN $ "Connection failed: " <> tshow e
           if attempts > 0
-          then do
-            threadDelay $ connectionRetryDelay sopts * 1000000
-            connect1 (attempts - 1)
-          else throwIO e
+             then threadDelay (connectionRetryDelay sopts * 1000000) >> connect1 (attempts - 1)
+             else throwIO e
         connect1 attempts =
           handleNetwork (connectExHandler attempts) $
           liftIO $ case ct of
@@ -265,9 +263,7 @@ startSession (host, port) ct user pass whUrl sopts = do
         mapM_ (`putTMVar` Nothing) $ IntMap.elems srs
         writeTVar syncResponses IntMap.empty
       handle
-        (\(e :: IOException) ->
-           logErrorN $
-           "Failed to close old connection: " <> tshow e) $
+        (\(e :: IOException) -> logErrorN $ "Failed to close old connection: " <> tshow e) $
         liftIO cl
       -- We do not change the protocol version during session recovery
       connect >>= atomically . putTMVar conn
@@ -456,7 +452,7 @@ sendRequestSyncRaw connection re invoke srs ar !rq = do
   let
     srHandler e = do
       logErrorN $ "Write error: " <> tshow e
-      liftIO $ atomically $ do
+      atomically $ do
         putTMVar connection c
         putTMVar var Nothing
         modifyTVar' srs $ IntMap.delete ix
@@ -467,9 +463,8 @@ sendRequestSyncRaw connection re invoke srs ar !rq = do
   handleNetwork srHandler $ Raw.sendRequest ostream ix rq
   -- Release the connection at once and wait for response in a
   -- separate transaction.
-  liftIO $ do
-    atomically $ putTMVar connection c
-    atomically $ takeTMVar var
+  atomically $ putTMVar connection c
+  atomically $ takeTMVar var
 
 
 -- | Like 'sendRequestAsync', but do not wait for a result.
@@ -511,7 +506,7 @@ sendRequestAsyncRaw connection re invoke ar !rq = do
   let
     srHandler e = do
       logErrorN $ "Write error: " <> tshow e
-      liftIO $ atomically $ do
+      atomically $ do
         putTMVar connection c
         case ar of
           Just (ars, _) -> modifyTVar' ars (IntMap.delete ix)
