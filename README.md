@@ -15,6 +15,18 @@ AVAYA DMCC XML API is largely based on ECMA-354 (CSTA Phase III)
 standard, so in theory the package can be used with other compliant
 telephony solutions.
 
+## Features
+
+- First-party interface for most of call control functions (making and
+  answering calls, hold, conference call, transfer, barge in, state
+  control).
+
+- State change events (implemented in the library using polling to
+  compensate for the lack of a native implementation in DMCC 6.x).
+
+- Webhook support (the library can send HTTP requests in response to
+  agent state change events).
+
 ## Site-specific notes
 
 One basic TSAPI license is consumed for every agent controlled by
@@ -71,8 +83,8 @@ The server reports telephony events along with updated agent snapshot:
       "tag": "TelephonyEvent"
     }
 
-Client applications may use events to update their interface or
-process the whole state every time an event arrives.
+Client applications may use events to update their UI incrementally or
+re-process the whole state every time an event arrives.
 
 ## macOS
 
