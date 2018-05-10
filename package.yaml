@@ -1,6 +1,6 @@
 name: dmcc
 version: 1.0.0.0
-synopsis: AVAYA DMCC XML API implementation and WebSockets server
+synopsis: AVAYA DMCC API bindings and WebSockets server for AVAYA
 description:
   >-
     Partial implementation of CSTA Phase III XML Protocol (ECMA-323)
