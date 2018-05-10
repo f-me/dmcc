@@ -1,5 +1,5 @@
 name: dmcc
-version: 0.6.0
+version: 1.0.0.0
 synopsis: AVAYA DMCC XML API implementation and WebSockets server
 description:
   >-
@@ -12,6 +12,7 @@ maintainer: dima@dzhus.org
 category: Network
 
 extra-source-files:
+  - CHANGELOG.md
   - README.md
   - dmcc-ws/example.cfg
 
