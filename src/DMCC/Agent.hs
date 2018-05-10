@@ -30,7 +30,6 @@ import           Network.HTTP.Client (httpNoBody, method, requestBody)
 
 import           DMCC.Session
 import           DMCC.Types
-import           DMCC.Util ()
 import qualified DMCC.XML.Request as Rq
 import qualified DMCC.XML.Response as Rs
 

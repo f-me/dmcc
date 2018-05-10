@@ -35,11 +35,8 @@ dependencies:
   - containers
   - monad-control
   - monad-logger
-  - safe-exceptions
   - stm
   - text
-  - time
-  - transformers-base
   - unliftio
 
 library:
@@ -51,10 +48,11 @@ library:
     - http-client
     - io-streams
     - lens
-    - mtl
     - network
     - openssl-streams
-    - transformers
+    - safe-exceptions
+    - time
+    - transformers-base
     - xml-conduit
     - xml-hamlet
 
