@@ -394,7 +394,7 @@ processAgentAction aid@(AgentId (switch, _)) device snapshot as action =
       sendRequestSync (dmccHandle as) (Just aid) $
       Rq.GenerateDigits digits device callId (protocolVersion as)
     SetState newState -> do
-      cs <- atomically $ readTVar snapshot
+      cs <- readTVarIO snapshot
       when (fst (_state cs) /= Just Busy) $
         simpleRequest Rq.SetAgentState newState
   where
@@ -607,7 +607,7 @@ releaseAgent ah@(AgentHandle (aid, as)) = do
 -- | Attach an event handler to an agent. Exceptions are not handled.
 handleEvents :: (MonadLoggerIO m, MonadThrow m) => AgentHandle -> (AgentEvent -> m ()) -> m ThreadId
 handleEvents (AgentHandle (aid, as)) handler = do
-  ags <- atomically $ readTVar $ agents as
+  ags <- readTVarIO $ agents as
   case Map.lookup aid ags of
     Nothing -> throwIO $ UnknownAgent aid
     Just Agent{..} -> do
