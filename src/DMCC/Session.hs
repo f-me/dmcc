@@ -13,7 +13,6 @@ DMCC session handling.
 
 module DMCC.Session
   ( Session (..)
-  , ConnectionType (..)
   , startSession
   , stopSession
   , defaultSessionOptions
@@ -59,9 +58,6 @@ import qualified DMCC.XML.Response as Rs
 import qualified DMCC.XML.Raw as Raw
 
 import {-# SOURCE #-} DMCC.Agent
-
-
-data ConnectionType = TLS { caDir :: Maybe FilePath }
 
 
 -- | Third element is a connection close action.
@@ -130,8 +126,8 @@ defaultSessionOptions = SessionOptions 1 120 24 5
 startSession :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadCatch m)
              => (String, PortNumber)
              -- ^ Host and port of AES server.
-             -> ConnectionType
-             -- ^ Use TLS.
+             -> Maybe FilePath
+             -- ^ AES CA certificates directory for TLS.
              -> Text
              -- ^ DMCC API user.
              -> Text
@@ -140,7 +136,7 @@ startSession :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadC
              -- ^ Web hook URL.
              -> SessionOptions
              -> m Session
-startSession (host, port) (TLS caDir) user pass whUrl sopts = do
+startSession (host, port) caDir user pass whUrl sopts = do
   syncResponses <- newTVarIO IntMap.empty
   agentRequests <- newTVarIO IntMap.empty
   invoke <- newTVarIO 0

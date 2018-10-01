@@ -7,7 +7,6 @@ monitoring.
 
 module DMCC
   ( Session
-  , ConnectionType (..)
   , startSession
   , stopSession
   , defaultSessionOptions

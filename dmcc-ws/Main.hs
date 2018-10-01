@@ -103,7 +103,7 @@ realMain logger config = do
   CS.logInfo $ "Starting session using " <> fromString (show cfg)
 
   let runSession = startSession
-        (aesAddr, fromIntegral aesPort) (TLS caDir)
+        (aesAddr, fromIntegral aesPort) caDir
         apiUser apiPass
         whUrl
         defaultSessionOptions { statePollingDelay       = stateDelay
