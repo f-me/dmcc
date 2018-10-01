@@ -1,5 +1,5 @@
 name: dmcc
-version: 1.0.0.2
+version: 1.1.0.0
 synopsis: AVAYA DMCC API bindings and WebSockets server for AVAYA
 description:
   >-
