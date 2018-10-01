@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- GHC 8.6.x support
+
+### Removed
+
+- Plain unencrypted (non-TLS) connections to AES server are no longer supported
+
 ## [1.0.0.1] - 2018-05-10
 
 ### Changed
