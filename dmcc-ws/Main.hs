@@ -41,7 +41,6 @@ data Config = Config
   { listenPort :: Int
   , aesAddr    :: String
   , aesPort    :: Int
-  , aesTLS     :: Bool
   , caDir      :: Maybe FilePath
   , apiUser    :: Text
   , apiPass    :: Text
@@ -88,7 +87,6 @@ realMain logger config = do
       <$> Cfg.require c "listen-port"
       <*> Cfg.require c "aes-addr"
       <*> Cfg.require c "aes-port"
-      <*> Cfg.lookupDefault True c "aes-use-tls"
       <*> Cfg.lookup  c "aes-cacert-directory"
       <*> Cfg.require c "api-user"
       <*> Cfg.require c "api-pass"
@@ -105,8 +103,7 @@ realMain logger config = do
   CS.logInfo $ "Starting session using " <> fromString (show cfg)
 
   let runSession = startSession
-        (aesAddr, fromIntegral aesPort)
-        (if aesTLS then TLS caDir else Plain)
+        (aesAddr, fromIntegral aesPort) (TLS caDir)
         apiUser apiPass
         whUrl
         defaultSessionOptions { statePollingDelay       = stateDelay

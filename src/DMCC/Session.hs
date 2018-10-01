@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DoAndIfThenElse #-}
@@ -43,10 +44,8 @@ import           System.IO.Streams ( InputStream
                                    , ReadTooShortException
                                    , write
                                    )
-import           System.IO.Streams.Handle
 import qualified System.IO.Streams.SSL as SSLStreams
 
-import           Network
 import qualified Network.HTTP.Client as HTTP
 import           Network.Socket hiding (connect)
 import           OpenSSL
@@ -62,8 +61,7 @@ import qualified DMCC.XML.Raw as Raw
 import {-# SOURCE #-} DMCC.Agent
 
 
-data ConnectionType = Plain
-                    | TLS { caDir :: Maybe FilePath }
+data ConnectionType = TLS { caDir :: Maybe FilePath }
 
 
 -- | Third element is a connection close action.
@@ -142,7 +140,7 @@ startSession :: (MonadUnliftIO m, MonadLoggerIO m, MonadBaseControl IO m, MonadC
              -- ^ Web hook URL.
              -> SessionOptions
              -> m Session
-startSession (host, port) ct user pass whUrl sopts = do
+startSession (host, port) (TLS caDir) user pass whUrl sopts = do
   syncResponses <- newTVarIO IntMap.empty
   agentRequests <- newTVarIO IntMap.empty
   invoke <- newTVarIO 0
@@ -168,15 +166,7 @@ startSession (host, port) ct user pass whUrl sopts = do
              else throwIO e
         connect1 attempts =
           handleNetwork (connectExHandler attempts) $
-          liftIO $ case ct of
-            Plain -> do
-              h <- connectTo host (PortNumber $ fromIntegral port)
-              hSetBuffering h NoBuffering
-              is <- handleToInputStream h
-              os <- handleToOutputStream h
-              let cl = hClose h
-              pure (is, os, cl)
-            TLS caDir -> withOpenSSL $ do
+          liftIO $ withOpenSSL $ do
               sslCtx <- SSL.context
               SSL.contextSetDefaultCiphers sslCtx
               SSL.contextSetVerificationMode sslCtx $
