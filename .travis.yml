@@ -2,14 +2,18 @@ sudo: false
 
 language: c
 
-addons:
-  apt:
-    packages:
-    - libgmp-dev
+matrix:
+  include:
+    - env: FLAGS="" ARGS=""
+      compiler: ": #stack default"
+      addons: {apt: {packages: [libgmp-dev]}}
+    - env: FLAGS="" ARGS="--stack-yaml=stack-previous.yaml"
+      compiler: ": #stack previous"
+      addons: {apt: {packages: [libgmp-dev]}}
 
 before_install:
 - unset CC
-- mkdir -p ~/.local/bin
+- mkdir -p $HOME/.local/bin
 - export PATH=$HOME/.local/bin:$PATH
 - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
 
