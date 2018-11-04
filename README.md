@@ -45,18 +45,23 @@ WebSockets using JSON messages for client-server exchange. Its purpose
 is to provide a clean agent-centric interface to DMCC API suitable for
 usage from client applications running in a browser.
 
-The server is invoked as `dmcc-ws dmcc-ws.cfg`. See example
-configuration file at `dmcc-ws/example.cfg`.
+Run the server as
+
+```
+dmcc-ws dmcc-ws.cfg
+```
+
+See example configuration file at `dmcc-ws/example.cfg`.
 
 With `dmcc-ws` running, you may start controlling an agent with
-extension `XXX`, connect to WebSocket URL `http://host:port/XXX`. The
-server accepts client commands in JSON:
+extension `XXX` by connecting to WebSocket URL `http://host:port/XXX`.
+The server accepts client commands in JSON:
 
 ```json
 {"action":"MakeCall", "number":"989150603267"}
 ```
 
-Consult `DMCC.Action` documentation in Haddock docs for DMCC library
+Consult [`DMCC.Action`][dmcc-actions] documentation in Haddock docs for DMCC library
 for supported commands.
 
 The server reports telephony events along with updated agent snapshot:
@@ -104,3 +109,5 @@ stack build --extra-include-dirs=/usr/local/opt/openssl/include/ --extra-lib-dir
 [dmcc-api]: https://www.devconnectprogram.com/site/global/products_resources/avaya_aura_application_enablement_services/interfaces/dmcc/overview/index.gsp
 
 [ecma-354]: http://www.ecma-international.org/publications/standards/Ecma-354.htm
+
+[dmcc-actions]: https://hackage.haskell.org/package/dmcc/docs/DMCC-Agent.html#t:Action
