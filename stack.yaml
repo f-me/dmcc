@@ -1,4 +1,2 @@
-resolver: nightly-2018-11-02
+resolver: nightly-2018-12-12
 pvp-bounds: upper
-extra-deps:
-- openssl-streams-1.2.1.3@sha256:9e1fe9d805a890b1e2d8e6ea56985b1d5806699c91ec96c29d973a9fdb9b0480
