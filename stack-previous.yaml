@@ -1,0 +1,4 @@
+# The purpose of this config is to check compatibility with previous major version of LTS snapshot
+# (and GHC version attached to that snapshot) relative to current one from `stack.yaml`.
+
+resolver: lts-12.26 # GHC 8.4.4
