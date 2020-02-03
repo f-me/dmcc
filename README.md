@@ -98,7 +98,16 @@ The server reports telephony events along with updated agent snapshot:
 Client applications may use events to update their UI incrementally or
 re-process the whole state every time an event arrives.
 
-## macOS
+## Build
+
+Use [Haskell Stack](https://www.haskellstack.org/) tool to build the
+library and `dmcc-ws`:
+
+```bash
+stack install
+```
+
+### Developing on macOS
 
 On macOS with `openssl` installed via Homebrew, build with
 
