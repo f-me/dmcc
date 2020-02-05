@@ -29,13 +29,11 @@ where
 import           DMCC.Prelude
 
 import           Control.Arrow ()
-import           Control.Concurrent.STM.TMVar (tryPutTMVar)
 
-import           Data.ByteString (ByteString)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.IntMap.Strict as IntMap
-import           Data.Text as T (Text, empty)
+import           Data.Text as T (empty)
 import           Data.Typeable ()
 
 import           System.IO.Streams ( InputStream

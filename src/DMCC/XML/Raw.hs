@@ -16,6 +16,7 @@ module DMCC.XML.Raw where
 
 import           DMCC.Prelude
 
+import           Control.Monad.Fail
 import           Data.Binary.Get
 import           Data.Binary.Put
 import qualified Data.ByteString.Char8 as S

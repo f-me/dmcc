@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.0.2] - 2020-02-05
+
+### Changed
+
+- Dependencies bump
+
 ## [1.1.0.1] - 2019-02-08
 
 ### Changed
@@ -24,6 +30,7 @@
 
 ## [1.0.0.0] - 2018-05-10
 
+[1.1.0.2]: https://github.com/f-me/dmcc/compare/1.1.0.1...1.1.0.2
 [1.1.0.1]: https://github.com/f-me/dmcc/compare/1.1.0.0...1.1.0.1
 [1.1.0.0]: https://github.com/f-me/dmcc/compare/1.0.0.1...1.1.0.0
 [1.0.0.1]: https://github.com/f-me/dmcc/compare/1.0.0.0...1.0.0.1

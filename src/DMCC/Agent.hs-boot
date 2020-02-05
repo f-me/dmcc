@@ -6,8 +6,6 @@ where
 
 import           DMCC.Prelude
 
-import           Data.Text (Text)
-
 import           DMCC.Types
 import qualified DMCC.XML.Response as Rs
 import {-# SOURCE #-} DMCC.Session

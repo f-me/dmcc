@@ -10,9 +10,9 @@ where
 
 import DMCC.Prelude
 
+import Control.Monad.Fail
 import Data.Aeson as A
 import Data.Aeson.TH
-import Data.ByteString (ByteString)
 import Data.CaseInsensitive
 import Data.Data
 import Data.Text as T
@@ -52,11 +52,12 @@ newtype Extension =
 
 
 instance FromJSON Extension where
-  parseJSON (A.String s)
-    | T.length s > 30 = fail "Maximum extension length is 30 digits"
-    | (\c -> c `elem` (['0'..'9'] <> ['*', '#'])) `T.all` s = pure $ Extension s
-    | otherwise = fail "Extension must contain the digits 0-9, * or #"
-  parseJSON _ = fail "Could not parse extension"
+  parseJSON = withText "Extension" parseExtension
+    where
+      parseExtension s
+        | T.length s > 30 = fail "Maximum extension length is 30 digits"
+        | (\c -> c `elem` (['0'..'9'] <> ['*', '#'])) `T.all` s = pure $ Extension s
+        | otherwise = fail "Extension must contain the digits 0-9, * or #"
 
 
 newtype SwitchName =

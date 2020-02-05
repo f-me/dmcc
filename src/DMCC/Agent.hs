@@ -69,12 +69,12 @@ instance ToJSON AgentSnapshot where
 
 
 instance FromJSON AgentSnapshot where
-  parseJSON (Object o) =
-    AgentSnapshot
-    <$> Map.mapKeys CallId `liftM` (o .: "calls")
-    <*> (o .: "state")
-  parseJSON _ = fail "Could not parse AgentSnapshot from non-object"
-
+  parseJSON = withObject "AgentSnapshot" parseSnapshot
+    where
+      parseSnapshot o =
+        AgentSnapshot
+        <$> Map.mapKeys CallId `liftM` (o .: "calls")
+        <*> (o .: "state")
 
 $(makeLenses ''AgentSnapshot)
 

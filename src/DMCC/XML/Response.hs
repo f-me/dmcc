@@ -12,10 +12,8 @@ where
 
 import           DMCC.Prelude
 
-import           Control.Exception (SomeException)
 import           Data.CaseInsensitive (mk)
 import           Data.List (foldl1')
-import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Read as T
 

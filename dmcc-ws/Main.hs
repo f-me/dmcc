@@ -20,10 +20,8 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Configurator as Cfg
 import qualified Data.Map as Map
-import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Version (showVersion)
-import           Data.String (fromString)
 
 import           Network.WebSockets
 
