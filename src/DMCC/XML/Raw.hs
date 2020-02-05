@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 {-|
 
 DMCC request/response packet processing.
@@ -15,8 +17,9 @@ DMCC header format:
 module DMCC.XML.Raw where
 
 import           DMCC.Prelude
-
+#if MIN_VERSION_base(4,13,0)
 import           Control.Monad.Fail
+#endif
 import           Data.Binary.Get
 import           Data.Binary.Put
 import qualified Data.ByteString.Char8 as S

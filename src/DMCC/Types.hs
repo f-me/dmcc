@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -10,7 +11,9 @@ where
 
 import DMCC.Prelude
 
+#if MIN_VERSION_base(4,13,0)
 import Control.Monad.Fail
+#endif
 import Data.Aeson as A
 import Data.Aeson.TH
 import Data.CaseInsensitive
