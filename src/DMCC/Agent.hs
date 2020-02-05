@@ -73,7 +73,7 @@ instance FromJSON AgentSnapshot where
     where
       parseSnapshot o =
         AgentSnapshot
-        <$> Map.mapKeys CallId `liftM` (o .: "calls")
+        <$> Map.mapKeys CallId `fmap` (o .: "calls")
         <*> (o .: "state")
 
 $(makeLenses ''AgentSnapshot)
