@@ -8,4 +8,4 @@ import           DMCC.Types
 
 maybeSyslog :: MonadLogger m => Maybe LoggingOptions -> String -> m ()
 maybeSyslog Nothing _ = pure ()
-maybeSyslog (Just LoggingOptions{..}) msg = CS.logInfo $ T.pack msg
+maybeSyslog (Just _) msg = CS.logInfo $ T.pack msg

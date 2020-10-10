@@ -462,7 +462,7 @@ processAgentEvent aid device snapshot eventChan as rs = do
       (updSnapshot, report) <- atomically $ do
         -- Return True if the event must be reported to agent event chan
         report <- case ev of
-          Rs.OriginatedEvent{..} ->
+          Rs.OriginatedEvent _ _ _ ->
             -- Should have already been handled in a branch above
             pure True
           -- New call
