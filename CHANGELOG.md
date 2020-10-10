@@ -1,5 +1,11 @@
 # Changelog
 
+## WIP
+
+### Changed
+
+- Dependencies bump
+
 ## [1.1.0.2] - 2020-02-05
 
 ### Changed
