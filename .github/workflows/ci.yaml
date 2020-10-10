@@ -1,0 +1,32 @@
+name: Build & test
+on:
+  pull_request:
+  push:
+
+jobs:
+  build:
+    name: CI
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack_yaml: ['stack.yaml', 'stack-previous.yaml']
+    steps:
+      - name: Setup Stack
+        uses: mstksg/setup-stack@v1
+
+      - name: Clone project
+        uses: actions/checkout@v2
+
+      - name: Cache dependencies
+        uses: actions/cache@v1
+        with:
+          path: ~/.stack
+          key: ${{ runner.os }}-${{ matrix.stack_yaml }}-${{ hashFiles(matrix.stack_yaml) }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.stack_yaml }}-
+            ${{ runner.os }}-
+      - name: HLint
+        run: 'curl -sL https://raw.github.com/ndmitchell/hlint/master/misc/travis.sh | sh -s .'
+      - name: Build and run tests
+        run: 'stack build --fast --no-terminal --stack-yaml=${{ matrix.stack_yaml }} --pedantic --haddock --no-haddock-deps --test --bench --no-run-benchmarks'
