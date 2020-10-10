@@ -1,6 +1,6 @@
 # dmcc: AVAYA library for Haskell
 
-[![Travis CI build status](https://travis-ci.org/f-me/dmcc.svg)](https://travis-ci.org/f-me/dmcc)
+[![Build & test](https://github.com/f-me/dmcc/workflows/Build%20&%20test/badge.svg)](https://github.com/f-me/dmcc/actions)
 [![Hackage](https://img.shields.io/hackage/v/dmcc.svg?colorB=5e5184&style=flat)](https://hackage.haskell.org/package/dmcc)
 [![Hackage deps](https://img.shields.io/hackage-deps/v/dmcc.svg)](http://packdeps.haskellers.com/feed?needle=dmcc)
 
