@@ -13,7 +13,10 @@ jobs:
         stack_yaml: ['stack.yaml', 'stack-previous.yaml']
     steps:
       - name: Setup Stack
-        uses: mstksg/setup-stack@v1
+        uses: haskell/actions/setup@v1
+        with:
+          enable-stack: true
+          stack-version: 'latest'
 
       - name: Clone project
         uses: actions/checkout@v2
